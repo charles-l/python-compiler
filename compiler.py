@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from dataclasses import dataclass
+from empty import EMPTY
 
 ### Parser combinator
 
@@ -27,7 +28,7 @@ class ParseError:
         else:
             return f"{self.stream.row + 1}:{self.stream.col + 1}: expected {expected}"
 
-
+# TODO: combine this with char()
 def next_char(s: Stream):
     """
     The lowest level parser.
@@ -65,6 +66,16 @@ def next_char(s: Stream):
         return c, Stream(s.stream[1:], s.row + 1, 0)
     else:
         return c, Stream(s.stream[1:], s.row, s.col + 1)
+
+def empty(s: Stream):
+    '''
+    Parser.
+
+    The trival case. Parses an empty string successfully.
+    >>> parse('move along, nothing to see here', empty)
+    ''
+    '''
+    return EMPTY, s
 
 def parse(s: str, parser):
     '''
@@ -174,12 +185,13 @@ def seq(*ps):
             if type(v) == ParseError:
                 return (v, stream)
             else:
-                a.append(v)
+                if v is not EMPTY:
+                    a.append(v)
             stream = new_stream # advance stream
         return (a, stream)
     return seqf
 
-def convert(p, collect_f):
+def convert(p, convert_f):
     '''
     Combinator, I guess?? More of a utility function than anything else.
     Collect the results of a combinator or parser and convert it into a different type.
@@ -192,7 +204,7 @@ def convert(p, collect_f):
         val, new_stream = p(stream)
         if type(val) == ParseError:
             return val, stream # pass errors through
-        return collect_f(val), new_stream
+        return convert_f(val), new_stream
     return convertf
 
 def many(p):
@@ -233,6 +245,34 @@ def one_or_more(p):
     '''
     return convert(seq(p, many(p)), lambda x: [x[0]] + x[1])
 
+def one_or_none(p):
+    '''
+    Combinator.
+
+    Try to get a `p` or nothing.
+    >>> parse('whoop', one_or_none(alpha))
+    'w'
+    >>> parse('whoop', one_or_none(digit))
+    ''
+    '''
+    return oneof(p, empty)
+
+def discard(p):
+    '''
+    Combinator.
+
+    Throws away a parser result.
+    >>> parse('whoop', discard(alpha))
+    ''
+    >>> space = discard(many(char(' \t')))
+    >>> parse('   whee', seq(space, alpha))
+    ['w']
+    '''
+    def discardf(stream):
+        _, new_stream = p(stream)
+        return EMPTY, new_stream
+    return discardf
+
 # TODO: remove expectations in other parts of the code
 # TODO: write expect_predicate(p, predicate, error_message)
 def expect(p, expected_value):
@@ -248,38 +288,41 @@ def expect(p, expected_value):
 
 ### Language parser
 
-# TODO: maybe rewrite rules with "exact" flattening rather than using this sloppy flatten function...
-def flatten(a):
-    '''flatten a list
-    >>> flatten([1,2,3])
-    [1, 2, 3]
-    >>> flatten([1,[2],[[3,[4],[5]]]])
-    [1, 2, 3, 4, 5]
+def intersperse(p, delimp):
     '''
-    if type(a) != list:
-        return [a]
-    else:
-        return sum([flatten(x) for x in a], [])
+    Combinator.
+    Expects one or more `p`s to be intersperesed by `delimp`
 
+    >>> parse('a,b,c', intersperse(alpha, char(',')))
+    ['a', ',', 'b', ',', 'c']
+    >>> parse('a, b,  c', intersperse(alpha, discard(seq(char(','), many(char(' '))))))
+    ['a', 'b', 'c']
+    '''
+    return convert(seq(p, many(seq(delimp, p))), lambda x: [x[0]] + sum(x[1], []))
+
+# we don't care about space, so we discard it
 # <space> := ' '*
-space = many(char(' '))
+space = discard(many(char(' ')))
+# <indentation> := ' '*
+indentation = many(char(' \t'))
 # <number> := <digit> <digit>*
 number = convert(one_or_more(digit), lambda x: int(''.join(x)))
 # <identifier> := <alpha> (<alphanumeric> | '-' | '_')*
-identifier = convert(seq(alpha, many(oneof(alphanumeric, char('-_')))), lambda x: ''.join(flatten(x)))
+identifier = convert(seq(alpha, many(oneof(alphanumeric, char('-_')))), lambda x: ''.join([x[0]] + x[1]))
 # <function-call> := <identifier> '(' <expr> (',' <space> <expr>)* ')'
 # FIXME: clean this up -- find an alternative to forward declaration, so we don't reconstruct the parser every call
 def function_call(s):
-    return convert(seq(identifier, char('('), expr, many(seq(char(','), space, expr)), char(')')),
-            # also, ick... it's a pain to have to visualize this
-            lambda x: ['call', x[0], [x[2]] + [y[2] for y in x[3]]])(s)
+    return convert(seq(identifier, discard(char('(')),
+                       intersperse(expr, discard(seq(char(','), space))),
+                       discard(char(')'))),
+                   lambda x: ['call'] + x)(s)
 # <expr> := <number> | <function-call> | <identifier>
 # NOTE potential ambiguity of function-call vs identifier since they both start with an identifier
 expr = oneof(number, function_call, identifier) # NOTE: order matters here (can't do identifier, function call)
 # <assign-stmt> := <identifier> <space> '=' <space> <expr>
-assign_stmt = convert(seq(identifier, space, char('='), space, expr), lambda x: ['=', x[0], x[4]])
+assign_stmt = convert(seq(identifier, space, discard(char('=')), space, expr), lambda x: ['=', x[0], x[1]])
 # <return-stmt> := 'return' <space> <expr>
-return_stmt = convert(seq(expect(identifier, 'return'), space, expr), lambda x: ['return', x[2]])
+return_stmt = convert(seq(discard(expect(identifier, 'return')), space, expr), lambda x: ['return', x[0]])
 # <block> := (<space> <stmt> <newline>)+
 
 s = '''

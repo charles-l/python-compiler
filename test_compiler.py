@@ -13,12 +13,12 @@ class TestCompiler(unittest.TestCase):
         self.assertEqual(parse('f(2, x)', function_call), ['call', 'f', [2, 'x']])
         self.assertEqual(parse('fcall(g(x), 2)', function_call), ['call', 'fcall', [['call', 'g', ['x']], 2]])
 
-
     def test_assign_stmt(self):
         self.assertEqual(parse('a = b', assign_stmt), ['=', 'a', 'b'])
         self.assertEqual(parse('a = f(b, 1)', assign_stmt), ['=', 'a', ['call', 'f', ['b', 1]]])
 
     def test_return_stmt(self):
+        self.assertEqual(parse('return 3', return_stmt), ['return', 3])
         self.assertEqual(parse('return f(3, 4)', return_stmt), ['return', ['call', 'f', [3, 4]]])
 
     def test_parse_identifier(self):
