@@ -1,7 +1,15 @@
 #!/usr/bin/env python3
 
 from dataclasses import dataclass
-from empty import EMPTY
+
+class Token(str):
+    pass
+
+# EMPTY is not ''
+# EMPTY == ''
+EMPTY = Token("")
+BLOCK_BEGIN = Token("{")
+BLOCK_END = Token("}")
 
 ### Parser combinator
 
@@ -10,23 +18,23 @@ class Stream:
     stream: str
     row: int = 0
     col: int = 0
+    indent: int = 0
 
 @dataclass
 class ParseError:
-    stream: Stream
-    # TODO: add an index, use a slice instead of updating `stream` so we can peek backwards for error messages
-    expected: str # TODO: remove expected. use stream location instead (?)
+    stream: Stream # TODO: add an index, use a slice instead of updating `stream` so we can peek backwards for error messages
+    expected: str  # TODO: remove expected. use stream location instead (?)
     got: str
+    many: bool = False
 
     def error_string(self):
-        if len(self.expected) > 1:
-            expected = f'one of {repr(self.expected)}'
-        else:
-            expected = repr(self.expected)
+        if self.many:
+            self.expected = f"one of: {self.expected}"
         if self.got:
-            return f"{self.stream.row + 1}:{self.stream.col + 1}: expected {expected} but got {repr(self.got)}"
+            return f"{self.stream.row + 1}:{self.stream.col + 1}: expected {self.expected} but got {self.got}"
         else:
-            return f"{self.stream.row + 1}:{self.stream.col + 1}: expected {expected}"
+            return f"{self.stream.row + 1}:{self.stream.col + 1}: expected {self.expected}"
+
 
 # TODO: combine this with char()
 def next_char(s: Stream):
@@ -61,33 +69,33 @@ def next_char(s: Stream):
     if len(s.stream) > 0:
         c = s.stream[0]
     else:
-        c = ParseError(s, '<any char>', 'EOF')
+        c = ParseError(s, "<any char>", "EOF")
     if c == "\n":
         return c, Stream(s.stream[1:], s.row + 1, 0)
     else:
         return c, Stream(s.stream[1:], s.row, s.col + 1)
 
 def empty(s: Stream):
-    '''
+    """
     Parser.
 
     The trival case. Parses an empty string successfully.
     >>> parse('move along, nothing to see here', empty)
     ''
-    '''
+    """
     return EMPTY, s
 
 def parse(s: str, parser):
-    '''
+    """
     Execute the parser on a specific string
-    '''
+    """
     res, stream = parser(Stream(s))
     if type(res) == ParseError:
         raise Exception(res.error_string())
     return res
 
 def char(expected=None):
-    '''
+    """
     Return a parser that expects a specific character
     >>> parse('a word', char())
     'a'
@@ -99,46 +107,28 @@ def char(expected=None):
     Exception: 1:1: expected 'a' but got 't'
     >>> parse('the word', char('at')) # 'a' or 't'
     't'
-    '''
-    if expected == None: # any character
+    """
+    if expected == None:  # any character
         return next_char
+
     def charf(stream):
         c, new_stream = next_char(stream)
         if type(c) == ParseError:
-            return (ParseError(stream, expected, c.got), new_stream)
+            return ParseError(stream, repr(expected), c.got, many=len(expected) > 1), new_stream
         if c not in expected:
-            return (ParseError(stream, expected, c), new_stream)
+            return ParseError(stream, repr(expected), repr(c), many=len(expected) > 1), new_stream
         else:
             return (c, new_stream)
+
     return charf
 
-# def not_char(chars):
-#     '''
-#     Expects a new character that's NOT in `chars`.
-#     >>> parse('whee', not_char(' '))
-#     'w'
-#     >>> parse('whee', not_char('w'))
-#     Traceback (most recent call last):
-#         ...
-#     Exception: 1:1: expected one of "!<'w'>" but got 'w'
-#     '''
-#     def not_charf(stream):
-#         c, new_stream = next_char(stream)
-#         if type(c) == ParseError:
-#             # FIXME: these errors aren't nice...
-#             return (ParseError(stream, f'!<\'{chars}\'>', c.msg), new_stream)
-#         if c in chars:
-#             return (ParseError(stream, f'!<\'{chars}\'>', c), new_stream)
-#         else:
-#             return (c, new_stream)
-#     return not_charf
 
+alpha = char("abcdefghijklmnopqrstuvwxyz")
+digit = char("1234567890")
 
-alpha = char('abcdefghijklmnopqrstuvwxyz')
-digit = char('1234567890')
 
 def oneof(*ps):
-    '''
+    """
     Combinator.
     Expect one of the parsers to parse (and return the result of the first
     one that does)
@@ -150,24 +140,24 @@ def oneof(*ps):
     >>> parse('-', oneof(char('a'), char('b')))
     Traceback (most recent call last):
         ...
-    Exception: 1:1: expected one of ['a', 'b']
-    '''
+    Exception: 1:1: expected one of: 'a', 'b'
+    """
     def oneoff(stream):
         errs = []
         for p in ps:
             v, stream1 = p(stream)
             if type(v) == ParseError:
-                errs.append(v) # collect the errors for later (if needed)
+                errs.append(v)  # collect the errors for later (if all parsers fail)
             else:
                 return (v, stream1)
         else:
-            return (ParseError(stream, [x.expected for x in errs], None), stream)
+            return ParseError(stream, ", ".join([x.expected for x in errs]), None, many=True), stream
     return oneoff
 
 alphanumeric = oneof(alpha, digit)
 
 def seq(*ps):
-    '''
+    """
     Combinator.
     Expects all of the parsers to parse in sequence (returning the accumulated
     result of all of them)
@@ -176,60 +166,61 @@ def seq(*ps):
     >>> parse('acb', seq(alpha, digit, alpha))
     Traceback (most recent call last):
         ...
-    Exception: 1:2: expected one of '1234567890' but got 'c'
-    '''
+    Exception: 1:2: expected one of: '1234567890' but got 'c'
+    """
     def seqf(stream):
         a = []
+        s = stream
         for p in ps:
-            v, new_stream = p(stream)
+            v, new_stream = p(s)
             if type(v) == ParseError:
                 return (v, stream)
             else:
                 if v is not EMPTY:
                     a.append(v)
-            stream = new_stream # advance stream
-        return (a, stream)
+            s = new_stream  # advance stream
+        return (a, s)
     return seqf
 
 def convert(p, convert_f):
-    '''
+    """
     Combinator, I guess?? More of a utility function than anything else.
     Collect the results of a combinator or parser and convert it into a different type.
     >>> parse('123', many(digit))
     ['1', '2', '3']
     >>> parse('123', convert(many(digit), lambda x: int(''.join(x))))
     123
-    '''
+    """
     def convertf(stream):
         val, new_stream = p(stream)
         if type(val) == ParseError:
-            return val, stream # pass errors through
+            return val, stream  # pass errors through
         return convert_f(val), new_stream
     return convertf
 
 def many(p):
-    '''
+    """
     Combinator.
     Repeatedly apply `p` and collect the result.
     >>> parse('never gonna give you up, never gonna let you down', many(alpha))
     ['n', 'e', 'v', 'e', 'r']
     >>> parse('13', many(digit))
     ['1', '3']
-    '''
+    """
     def manyf(stream):
         a = []
         while True:
             val, new_stream = p(stream)
-            if type(val) == ParseError: # break on the first error
+            if type(val) == ParseError:  # break on the first error
                 return (a, stream)
             else:
                 a.append(val)
-            stream = new_stream # advance stream
+            stream = new_stream  # advance stream
         return a, stream
     return manyf
 
 def one_or_more(p):
-    '''
+    """
     Combinator.
     Like many, but expects at least one:
     >>> parse('wow', many(alpha)) == parse('wow', one_or_more(alpha))
@@ -241,12 +232,12 @@ def one_or_more(p):
     >>> parse('', one_or_more(alpha))
     Traceback (most recent call last):
         ...
-    Exception: 1:1: expected one of 'abcdefghijklmnopqrstuvwxyz' but got 'EOF'
-    '''
+    Exception: 1:1: expected one of: 'abcdefghijklmnopqrstuvwxyz' but got EOF
+    """
     return convert(seq(p, many(p)), lambda x: [x[0]] + x[1])
 
 def one_or_none(p):
-    '''
+    """
     Combinator.
 
     Try to get a `p` or nothing.
@@ -254,11 +245,11 @@ def one_or_none(p):
     'w'
     >>> parse('whoop', one_or_none(digit))
     ''
-    '''
+    """
     return oneof(p, empty)
 
 def discard(p):
-    '''
+    """
     Combinator.
 
     Throws away a parser result.
@@ -267,7 +258,7 @@ def discard(p):
     >>> space = discard(many(char(' \t')))
     >>> parse('   whee', seq(space, alpha))
     ['w']
-    '''
+    """
     def discardf(stream):
         _, new_stream = p(stream)
         return EMPTY, new_stream
@@ -275,61 +266,117 @@ def discard(p):
 
 # TODO: remove expectations in other parts of the code
 # TODO: write expect_predicate(p, predicate, error_message)
+# TODO: write "bind" or something that allows simpler pipelining for errors
 def expect(p, expected_value):
+    """
+    Utility function.
+    Expects `p` to parse an exact value. Just passes the parse result through on success.
+    >>> if_kwd = expect(convert(many(alpha), lambda x: ''.join(x)), 'if')
+    >>> parse('if true', if_kwd)
+    'if'
+    >>> parse('else:', if_kwd)
+    Traceback (most recent call last):
+        ...
+    Exception: 1:1: expected 'if' but got 'else'
+    """
     def matchf(stream):
         val, new_stream = p(stream)
+        if type(val) == ParseError:
+            return ParseError(stream, repr(expected_value), val.got), stream
         if val != expected_value:
-            return ParseError(stream, expected_value, val), stream
+            return ParseError(stream, repr(expected_value), repr(val)), stream
         else:
             return val, new_stream
     return matchf
 
-# TODO: figure out how to fit a discard in here...
-
 ### Language parser
 
 def intersperse(p, delimp):
-    '''
+    """
     Combinator.
     Expects one or more `p`s to be intersperesed by `delimp`
-
     >>> parse('a,b,c', intersperse(alpha, char(',')))
     ['a', ',', 'b', ',', 'c']
     >>> parse('a, b,  c', intersperse(alpha, discard(seq(char(','), many(char(' '))))))
     ['a', 'b', 'c']
-    '''
+    """
     return convert(seq(p, many(seq(delimp, p))), lambda x: [x[0]] + sum(x[1], []))
 
+# TODO: rewrite so if callable, execute parser, else try to match literal, then remove expect_id()
+expect_id = lambda s: expect(identifier, s)
+
+def indentation():
+    p = many(char(" "))
+    def indentationf(stream):
+        c, new_stream = p(stream)
+        if type(c) == ParseError:
+            return c, stream
+        if len(c) == stream.indent:
+            return EMPTY, new_stream
+        elif len(c) > stream.indent:
+            stream.indent = len(c)
+            return BLOCK_BEGIN, new_stream
+        elif len(c) < stream.indent:
+            stream.indent = len(c)
+            return BLOCK_END, new_stream
+    return indentationf
+
 # we don't care about space, so we discard it
-# <space> := ' '*
-space = discard(many(char(' ')))
-# <indentation> := ' '*
-indentation = many(char(' \t'))
+# <space> := (' ' | '\t')*
+space = discard(many(char(" \t")))
+# <newline> := '\n'
+newline = discard(char("\n"))
 # <number> := <digit> <digit>*
-number = convert(one_or_more(digit), lambda x: int(''.join(x)))
+number = convert(one_or_more(digit), lambda x: int("".join(x)))
 # <identifier> := <alpha> (<alphanumeric> | '-' | '_')*
-identifier = convert(seq(alpha, many(oneof(alphanumeric, char('-_')))), lambda x: ''.join([x[0]] + x[1]))
+identifier = convert(seq(alpha, many(oneof(alphanumeric, char("-_")))), lambda x: "".join([x[0]] + x[1]))
 # <function-call> := <identifier> '(' <expr> (',' <space> <expr>)* ')'
 # FIXME: clean this up -- find an alternative to forward declaration, so we don't reconstruct the parser every call
 def function_call(s):
-    return convert(seq(identifier, discard(char('(')),
-                       intersperse(expr, discard(seq(char(','), space))),
-                       discard(char(')'))),
-                   lambda x: ['call'] + x)(s)
+    return convert(
+        seq(
+            identifier,
+            discard(char("(")),
+            intersperse(expr, discard(seq(char(","), space))),
+            discard(char(")")),
+        ),
+        lambda x: ["call"] + x,
+    )(s)
+
+
 # <expr> := <number> | <function-call> | <identifier>
 # NOTE potential ambiguity of function-call vs identifier since they both start with an identifier
 expr = oneof(number, function_call, identifier) # NOTE: order matters here (can't do identifier, function call)
-# <assign-stmt> := <identifier> <space> '=' <space> <expr>
-assign_stmt = convert(seq(identifier, space, discard(char('=')), space, expr), lambda x: ['=', x[0], x[1]])
-# <return-stmt> := 'return' <space> <expr>
-return_stmt = convert(seq(discard(expect(identifier, 'return')), space, expr), lambda x: ['return', x[0]])
-# <block> := (<space> <stmt> <newline>)+
+# <assign-stmt-body> := <identifier> <space> '=' <space> <expr>
+assign_stmt_body = convert(seq(identifier, space, discard(char("=")), space, expr), lambda x: ["=", x[0], x[1]])
+# <return-stmt-body> := 'return' <space> <expr>
+return_stmt_body = seq(expect_id("return"), space, expr)
 
-s = '''
+def if_stmt(s):
+    return seq(expect_id("if"),
+        space,
+        expr,
+        discard(char(":")),
+        newline,
+        block,
+        newline,
+        expect_id("else"),
+        discard(char(":")),
+        newline,
+        block,
+    )(s)
+
+# <stmt> := <indentation> (<return-stmt-body> | <assign-stmt-body | <if-stmt> | <expr>) <newline>
+stmt = convert(seq(discard(indentation()), oneof(return_stmt_body, assign_stmt_body, expr), newline), lambda x: x[0])
+# <block> := BLOCK_BEGIN (<stmt>)+ BLOCK_END
+block = one_or_more(stmt)
+
+s = """
 def f(a, b):
     return +(a, b)
-'''
+"""
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import doctest
+
     doctest.testmod()
