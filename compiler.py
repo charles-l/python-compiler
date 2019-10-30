@@ -252,7 +252,7 @@ def discard(p):
     """
     Combinator.
 
-    Throws away a parser result.
+    Throws away a parser result if it succeeded.
     >>> parse('whoop', discard(alpha))
     ''
     >>> space = discard(many(char(' \t')))
@@ -260,8 +260,11 @@ def discard(p):
     ['w']
     """
     def discardf(stream):
-        _, new_stream = p(stream)
-        return EMPTY, new_stream
+        val, new_stream = p(stream)
+        if type(val) == ParseError:
+            return val, stream
+        else:
+            return EMPTY, new_stream
     return discardf
 
 # TODO: remove expectations in other parts of the code
@@ -359,7 +362,6 @@ def if_stmt(s):
         discard(char(":")),
         newline,
         block,
-        newline,
         expect_id("else"),
         discard(char(":")),
         newline,

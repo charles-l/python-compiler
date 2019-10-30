@@ -12,8 +12,13 @@ class TestCompiler(unittest.TestCase):
         self.assertEqual(parse('007', number), 7)
         self.assertEqual(parse('0x13', number), 0)
 
-    def test_seq(self):
-        self.assertEqual(parse('w0t', oneof(seq(alpha, alpha), seq(alpha, digit, alpha))), ['w', '0', 't'])
+    def test_expr(self):
+        self.assertEqual(parse('a=b', identifier), 'a')
+        self.assertEqual(parse('a=b', expr), 'a')
+
+    def test_stmt(self):
+        self.assertEqual(parse('a=b\n', stmt), ['=', 'a', 'b'])
+        self.assertEqual(parse('a(b)\n', stmt), ['call', 'a', ['b']])
 
     def test_function_call(self):
         self.assertEqual(parse('f(1)', function_call), ['call', 'f', [1]])
@@ -37,10 +42,12 @@ class TestCompiler(unittest.TestCase):
         self.assertEqual(parse('val+34', identifier), 'val')
 
     def test_if(self):
-        self.assertEqual(parse('''if true:
+        self.assertEqual(parse(
+'''if true:
     print(2)
 else:
-    return 1''', if_stmt), ['if', 'true', [['print', 2]], 'else', [['return', 1]]])
+    return 1
+''', if_stmt), ['if', 'true', [['call', 'print', [2]]], 'else', [['return', 1]]])
 
 if __name__ == '__main__':
     unittest.main()
