@@ -35,6 +35,15 @@ class ParseError:
         else:
             return f"{self.stream.row + 1}:{self.stream.col + 1}: expected {self.expected}"
 
+def empty(s: Stream):
+    """
+    Parser.
+
+    The trival case. Parses an empty string successfully.
+    >>> parse('nothing to see here, move along', empty)
+    ''
+    """
+    return EMPTY, s
 
 # TODO: combine this with char()
 def next_char(s: Stream):
@@ -74,16 +83,6 @@ def next_char(s: Stream):
         return c, Stream(s.stream[1:], s.row + 1, 0)
     else:
         return c, Stream(s.stream[1:], s.row, s.col + 1)
-
-def empty(s: Stream):
-    """
-    Parser.
-
-    The trival case. Parses an empty string successfully.
-    >>> parse('move along, nothing to see here', empty)
-    ''
-    """
-    return EMPTY, s
 
 def parse(s: str, parser):
     """
@@ -125,7 +124,6 @@ def char(expected=None):
 
 alpha = char("abcdefghijklmnopqrstuvwxyz")
 digit = char("1234567890")
-
 
 def oneof(*ps):
     """
@@ -172,6 +170,9 @@ def seq(*ps):
         a = []
         s = stream
         for p in ps:
+            if type(p) == str:
+                e = p
+                p = expect(identifier, e)
             v, new_stream = p(s)
             if type(v) == ParseError:
                 return (v, stream)
@@ -305,9 +306,6 @@ def intersperse(p, delimp):
     """
     return convert(seq(p, many(seq(delimp, p))), lambda x: [x[0]] + sum(x[1], []))
 
-# TODO: rewrite so if callable, execute parser, else try to match literal, then remove expect_id()
-expect_id = lambda s: expect(identifier, s)
-
 def indentation():
     p = many(char(" "))
     def indentationf(stream):
@@ -353,25 +351,21 @@ expr = oneof(number, function_call, identifier) # NOTE: order matters here (can'
 # <assign-stmt-body> := <identifier> <space> '=' <space> <expr>
 assign_stmt_body = convert(seq(identifier, space, discard(char("=")), space, expr), lambda x: ["=", x[0], x[1]])
 # <return-stmt-body> := 'return' <space> <expr>
-return_stmt_body = seq(expect_id("return"), space, expr)
+return_stmt_body = seq('return', space, expr)
 
 def if_stmt(s):
-    return seq(expect_id("if"),
-        space,
-        expr,
-        discard(char(":")),
-        newline,
+    return seq('if', space, expr, discard(char(':')),
         block,
-        expect_id("else"),
-        discard(char(":")),
-        newline,
+        'else', discard(char(':')),
         block,
     )(s)
 
 # <stmt> := <indentation> (<return-stmt-body> | <assign-stmt-body | <if-stmt> | <expr>) <newline>
 stmt = convert(seq(discard(indentation()), oneof(return_stmt_body, assign_stmt_body, expr), newline), lambda x: x[0])
-# <block> := BLOCK_BEGIN (<stmt>)+ BLOCK_END
-block = one_or_more(stmt)
+# <block> := newline, BLOCK_BEGIN (<stmt>)+ BLOCK_END
+block = convert(seq(discard(newline), one_or_more(stmt)), lambda x: x[0])
+# <function> := 'def' <space> <identifier> '(' (<identifier> (',' <space> <identifier>)*) ')' ':' <newline> <block>
+function = seq('def', space, identifier, char('('), intersperse(identifier, discard(seq(char(','), space))), char(')'), char(':'), block)
 
 s = """
 def f(a, b):
