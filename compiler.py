@@ -2,14 +2,44 @@
 
 from dataclasses import dataclass
 
-class Token(str):
-    pass
+class NilToken(str):
+    '''
+    NilTokens are used to represent bits of information about the token stream
+    to change the structure of the resulting tree. They act like normal strings
+    in almost every way. The only two differences are the functionality for repr()
+    and their internal reference.
+
+    >>> a = NilToken('a')
+    >>> a + 'some str' # no effect on normal strings
+    'some str'
+    >>> str(a)
+    ''
+    >>> empty = ''
+    >>> # Python does string interning by default
+    >>> # Empty and '' reference the same memory location
+    >>> empty is ''
+    True
+    >>> # But since we constructed the NilToken instance, it has a new memory location
+    >>> a is ''
+    False
+    >>> a is a # The only way to get 'is' to evaluate to true is to use the exact same reference
+    True
+    >>> b = NilToken('b')
+    >>> a is b
+    False
+    >>> a.name # for debug
+    '<a>'
+    '''
+    def __new__(cls, name):
+        o = str.__new__(cls, '')
+        o.name = '<' + name + '>'
+        return o
 
 # EMPTY is not ''
 # EMPTY == ''
-EMPTY = Token("")
-BLOCK_BEGIN = Token("{")
-BLOCK_END = Token("}")
+EMPTY = NilToken('empty')
+BLOCK_BEGIN = NilToken('block begin')
+BLOCK_END = NilToken('block end')
 
 ### Parser combinator
 
@@ -332,18 +362,15 @@ number = convert(one_or_more(digit), lambda x: int("".join(x)))
 # <identifier> := <alpha> (<alphanumeric> | '-' | '_')*
 identifier = convert(seq(alpha, many(oneof(alphanumeric, char("-_")))), lambda x: "".join([x[0]] + x[1]))
 # <function-call> := <identifier> '(' <expr> (',' <space> <expr>)* ')'
-# FIXME: clean this up -- find an alternative to forward declaration, so we don't reconstruct the parser every call
-def function_call(s):
-    return convert(
+function_call = convert(
         seq(
             identifier,
             discard(char("(")),
-            intersperse(expr, discard(seq(char(","), space))),
+            intersperse(lambda x: expr(x), discard(seq(char(","), space))),
             discard(char(")")),
         ),
         lambda x: ["call"] + x,
-    )(s)
-
+    )
 
 # <expr> := <number> | <function-call> | <identifier>
 # NOTE potential ambiguity of function-call vs identifier since they both start with an identifier
@@ -353,12 +380,10 @@ assign_stmt_body = convert(seq(identifier, space, discard(char("=")), space, exp
 # <return-stmt-body> := 'return' <space> <expr>
 return_stmt_body = seq('return', space, expr)
 
-def if_stmt(s):
-    return seq('if', space, expr, discard(char(':')),
-        block,
+if_stmt = seq('if', space, expr, discard(char(':')),
+        lambda x: block(x),
         'else', discard(char(':')),
-        block,
-    )(s)
+        lambda x: block(x))
 
 # <stmt> := <indentation> (<return-stmt-body> | <assign-stmt-body | <if-stmt> | <expr>) <newline>
 stmt = convert(seq(discard(indentation()), oneof(return_stmt_body, assign_stmt_body, expr), newline), lambda x: x[0])
