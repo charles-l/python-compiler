@@ -440,25 +440,22 @@ def gensym():
 def is_trivial(b):
     return type(b) in {str, int, float}
 
+
 @singledispatch
-def normalize(node):
+def normalize_stmt(stmt): # expr case
+    norm, hoisted = normalize_expr(stmt)
+    return hoisted.add(norm)
+
+@singledispatch
+def normalize_expr(node):
     return node, Block()
 
-@normalize.register(list)
-@normalize.register(tuple)
-@normalize.register(Block)
-@normalize.register(Assign)
-def _(node):
-    print('hi')
-    node_, hoisted = list(zip(*[normalize(n) for n in node]))
-    return Block(node_), hoisted
-
-@normalize.register(FunctionCall)
+@normalize_expr.register(FunctionCall)
 def _(node: FunctionCall):
     new_args = []
     hoisted = Block()
     for arg in node.args:
-        a, h_ = normalize(arg)
+        a, h_ = normalize_expr(arg)
         hoisted.add(h_)
         if is_trivial(a):
             new_args.append(a)

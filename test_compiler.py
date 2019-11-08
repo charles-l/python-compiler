@@ -69,21 +69,19 @@ else:
 
     def test_normalize(self):
         tree1 = FunctionCall(('a', 'b', 'c'))
-        self.assertEqual(normalize(tree1)[0], ('a', 'b', 'c'))
+        self.assertEqual(normalize_expr(tree1)[0], ('a', 'b', 'c'))
 
         global gensym_counter
         gensym_counter = 0
 
         tree2 = FunctionCall(('a', FunctionCall(('b')), 'c'))
-        n = normalize(tree2)
-        self.assertEqual(n[1].add(n[0]),
+        self.assertEqual(normalize_stmt(tree2),
                 [('=', 'tmp1', ('b',)),
                  ('a', 'tmp1', 'c')])
 
         gensym_counter = 0
-        tree2 = FunctionCall(('a', FunctionCall(('b', FunctionCall(('x',)))), 'c'))
-        n = normalize(tree2)
-        self.assertEqual(n[1].add(n[0]),
+        tree3 = FunctionCall(('a', FunctionCall(('b', FunctionCall(('x',)))), 'c'))
+        self.assertEqual(normalize_stmt(tree3),
                 [('=', 'tmp2', ('x',)),
                  ('=', 'tmp3', ('b', 'tmp2')),
                  ('a', 'tmp3', 'c')])
