@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 from dataclasses import dataclass
+from functools import singledispatch
+from collections.abc import Iterable
 
 class NilToken(str):
     '''
@@ -336,6 +338,36 @@ def expect(p, expected_value):
 
 ### Language parser
 
+class Block(list):
+    def __init__(self, *nodes):
+        l = []
+        for n in nodes:
+            if type(n) == Block:
+                l.extend(n)
+            else:
+                l.append(n)
+        self.extend(l)
+
+    def add(self, b):
+        if type(b) == Block:
+            self.extend(b)
+        else:
+            self.append(b)
+        return self
+
+class FunctionCall(tuple):
+    @property
+    def name(self): return self[0]
+    @property
+    def args(self): return self[1:]
+
+class Assign(tuple):
+    def __new__(cls, a, b): return super(Assign, cls).__new__(cls, tuple(('=', a, b)))
+    @property
+    def lhs(self): return self[0]
+    @property
+    def rhs(self): return self[1]
+
 def intersperse(p, delimp):
     """
     Combinator.
@@ -374,14 +406,8 @@ number = convert(one_or_more(digit), lambda x: int("".join(x)))
 identifier = convert(seq(alpha, many(oneof(alphanumeric, char("-_")))), lambda x: "".join([x[0]] + x[1]))
 # <function-call> := <identifier> '(' <expr> (',' <space> <expr>)* ')'
 function_call = convert(
-        seq(
-            identifier,
-            discard(char("(")),
-            intersperse(lambda x: expr(x), discard(seq(char(","), space))),
-            discard(char(")")),
-        ),
-        lambda x: ["call"] + x,
-    )
+        seq(identifier, discard(char("(")), intersperse(lambda x: expr(x), discard(seq(char(","), space))), discard(char(")"))),
+        lambda x: ["call"] + x)
 
 # <expr> := <number> | <function-call> | <identifier>
 # NOTE potential ambiguity of function-call vs identifier since they both start with an identifier
@@ -402,6 +428,53 @@ stmt = convert(seq(discard(indentation()), oneof(return_stmt_body, assign_stmt_b
 block = convert(seq(discard(newline), one_or_more(stmt)), lambda x: x[0])
 # <function> := 'def' <space> <identifier> '(' (<identifier> (',' <space> <identifier>)*) ')' ':' <newline> <block>
 function = seq('def', space, identifier, char('('), intersperse(identifier, discard(seq(char(','), space))), char(')'), char(':'), block)
+
+### A-normal form
+
+gensym_counter = 0
+def gensym():
+    global gensym_counter
+    gensym_counter += 1
+    return f'tmp{gensym_counter}'
+
+def is_trivial(b):
+    return type(b) in {str, int, float}
+
+@singledispatch
+def normalize(node):
+    return node, Block()
+
+@normalize.register(list)
+@normalize.register(tuple)
+@normalize.register(Block)
+@normalize.register(Assign)
+def _(node):
+    print('hi')
+    node_, hoisted = list(zip(*[normalize(n) for n in node]))
+    return Block(node_), hoisted
+
+@normalize.register(FunctionCall)
+def _(node: FunctionCall):
+    new_args = []
+    hoisted = Block()
+    for arg in node.args:
+        a, h_ = normalize(arg)
+        hoisted.add(h_)
+        if is_trivial(a):
+            new_args.append(a)
+        else:
+            new_var = gensym()
+            hoisted.add(Assign(new_var, a))
+            new_args.append(new_var)
+    return FunctionCall([node.name] + new_args), hoisted
+
+### Code gen
+
+#call_registers = ['rdi', 'rsi', 'rdx', 'rcx', 'r8', 'r9']
+#def emit_function_call(fcall):
+#    assert fcall[0] == 'call'
+#    _, function_name, args = fcall
+
 
 if __name__ == "__main__":
     import doctest

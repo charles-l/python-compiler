@@ -60,5 +60,34 @@ else:
     return 1
 ''', if_stmt), ['if', 'true', [['call', 'print', [2]]], 'else', [['return', 1]]])
 
+    def test_block(self):
+        b1 = Block('a', 'b', 'c')
+        self.assertEqual(b1, ['a', 'b', 'c'])
+
+        b2 = Block('a', Block('b'), 'c')
+        self.assertEqual(b2, ['a', 'b', 'c'])
+
+    def test_normalize(self):
+        tree1 = FunctionCall(('a', 'b', 'c'))
+        self.assertEqual(normalize(tree1)[0], ('a', 'b', 'c'))
+
+        global gensym_counter
+        gensym_counter = 0
+
+        tree2 = FunctionCall(('a', FunctionCall(('b')), 'c'))
+        n = normalize(tree2)
+        self.assertEqual(n[1].add(n[0]),
+                [('=', 'tmp1', ('b',)),
+                 ('a', 'tmp1', 'c')])
+
+        gensym_counter = 0
+        tree2 = FunctionCall(('a', FunctionCall(('b', FunctionCall(('x',)))), 'c'))
+        n = normalize(tree2)
+        self.assertEqual(n[1].add(n[0]),
+                [('=', 'tmp2', ('x',)),
+                 ('=', 'tmp3', ('b', 'tmp2')),
+                 ('a', 'tmp3', 'c')])
+
+
 if __name__ == '__main__':
     unittest.main()
