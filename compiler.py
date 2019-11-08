@@ -45,10 +45,20 @@ BLOCK_END = NilToken('block end')
 
 @dataclass
 class Stream:
-    stream: str
-    row: int = 0
-    col: int = 0
+    _stream: str
+    i: int = 0
     indent: int = 0
+    @property
+    def stream(self): return self._stream[self.i:]
+
+    @property
+    def row(self): return sum((1 for c in self._stream[:self.i] if c == '\n'))
+
+    @property
+    def col(self): return next((j for j in range(self.i) if self._stream[self.i - j] == '\n'), self.i)
+
+    def empty(self): return self.i >= len(self._stream)
+
 
 @dataclass
 class ParseError:
@@ -76,12 +86,13 @@ def empty(s: Stream):
     return EMPTY, s
 
 # TODO: combine this with char()
+# TODO: make this part of the stream object
 def next_char(s: Stream):
     """
     The lowest level parser.
     Return the next char in the string and the advanced Stream.
     >>> s = Stream('some string')
-    >>> c1, s1= next_char(s)
+    >>> c1, s1 = next_char(s)
     >>> c1
     's'
     >>> c2, s2 = next_char(s1)
@@ -97,7 +108,7 @@ def next_char(s: Stream):
     >>> c
     's'
     >>> s.row, s.col
-    (1, 1)
+    (1, 2)
 
     Empty streams return a ParseError. This will be useful later.
     >>> s = Stream('')
@@ -105,14 +116,14 @@ def next_char(s: Stream):
     >>> e.got
     'EOF'
     """
-    if len(s.stream) > 0:
-        c = s.stream[0]
-    else:
+    if s.empty():
         c = ParseError(s, "<any char>", "EOF")
-    if c == "\n":
-        return c, Stream(s.stream[1:], s.row + 1, 0)
     else:
-        return c, Stream(s.stream[1:], s.row, s.col + 1)
+        c = s.stream[0]
+    if c == "\n":
+        return c, Stream(s._stream, s.i + 1)
+    else:
+        return c, Stream(s._stream, s.i + 1)
 
 def parse(s: str, parser):
     """
@@ -391,11 +402,6 @@ stmt = convert(seq(discard(indentation()), oneof(return_stmt_body, assign_stmt_b
 block = convert(seq(discard(newline), one_or_more(stmt)), lambda x: x[0])
 # <function> := 'def' <space> <identifier> '(' (<identifier> (',' <space> <identifier>)*) ')' ':' <newline> <block>
 function = seq('def', space, identifier, char('('), intersperse(identifier, discard(seq(char(','), space))), char(')'), char(':'), block)
-
-s = """
-def f(a, b):
-    return +(a, b)
-"""
 
 if __name__ == "__main__":
     import doctest

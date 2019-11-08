@@ -3,6 +3,17 @@ import unittest
 from compiler import *
 
 class TestCompiler(unittest.TestCase):
+    def test_stream(self):
+        s = Stream('''Some
+text
+on some lines''')
+        self.assertEqual(s.row, 0)
+        self.assertEqual(s.col, 0)
+
+        s.i = 6
+        self.assertEqual(s.row, 1)
+        self.assertEqual(s.col, 2)
+
     def test_identifier(self):
         self.assertEqual(parse('whee whoo', identifier), 'whee')
         self.assertEqual(parse('wh3e whoo', identifier), 'wh3e')
@@ -36,7 +47,7 @@ class TestCompiler(unittest.TestCase):
     def test_parse_identifier(self):
         with self.assertRaises(Exception) as e:
             parse('32 45', identifier)
-        self.assertTrue(str(e.exception).startswith('1:1: expected one of'))
+        self.assertTrue(str(e.exception).startswith('1:1: expected one of'), f"got: '{e.exception}'")
 
         self.assertEqual(parse('l33t c0d3r', identifier), 'l33t')
         self.assertEqual(parse('val+34', identifier), 'val')
