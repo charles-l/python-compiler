@@ -68,24 +68,27 @@ else:
         self.assertEqual(b2, ['a', 'b', 'c'])
 
     def test_normalize(self):
-        tree1 = FunctionCall(('a', 'b', 'c'))
+        tree1 = FunctionCall('a', 'b', 'c')
         self.assertEqual(normalize_expr(tree1)[0], ('a', 'b', 'c'))
 
-        global gensym_counter
-        gensym_counter = 0
-
-        tree2 = FunctionCall(('a', FunctionCall(('b')), 'c'))
+        tree2 = FunctionCall('a', FunctionCall('b'), 'c')
         self.assertEqual(normalize_stmt(tree2),
                 [('=', 'tmp1', ('b',)),
                  ('a', 'tmp1', 'c')])
 
-        gensym_counter = 0
-        tree3 = FunctionCall(('a', FunctionCall(('b', FunctionCall(('x',)))), 'c'))
+        tree3 = FunctionCall('a', FunctionCall('b', FunctionCall('x')), 'c')
         self.assertEqual(normalize_stmt(tree3),
                 [('=', 'tmp2', ('x',)),
                  ('=', 'tmp3', ('b', 'tmp2')),
                  ('a', 'tmp3', 'c')])
 
+        tree4 = If(FunctionCall('b', FunctionCall('x')),
+                   'c',
+                   FunctionCall('d'))
+        self.assertEqual(normalize_stmt(tree4),
+                [('=', 'tmp4', ('x',)),
+                 ('=', 'tmp5', ('b', 'tmp4')),
+                 ('if', 'tmp5', ['c'], [('d',)])])
 
 if __name__ == '__main__':
     unittest.main()
