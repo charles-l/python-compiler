@@ -90,5 +90,12 @@ else:
                  ('=', 'tmp5', ('b', 'tmp4')),
                  ('if', 'tmp5', ['c'], [('d',)])])
 
+        tree5 = Return(FunctionCall('a', FunctionCall('b')))
+        self.assertEqual(normalize_stmt(tree5),
+                [('=', 'tmp6', ('b',)),
+                 ('=', 'tmp7', ('a', 'tmp6')),
+                 ('return', 'tmp7')])
+
+
 if __name__ == '__main__':
     unittest.main()

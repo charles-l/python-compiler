@@ -367,6 +367,11 @@ class If(tuple):
     then = property(lambda s: s[2])
     otherwise = property(lambda s: s[3])
 
+class Return(tuple):
+    def __new__(cls, val):
+        return super(Return, cls).__new__(cls, tuple(('return', val)))
+    value = property(lambda s: s[1])
+
 def intersperse(p, delimp):
     """
     Combinator.
@@ -461,6 +466,14 @@ def _(ifnode: If):
         return hoisted.add(norm_if)
     else:
         return norm_if
+
+@normalize_stmt.register(Return)
+def _(e: Return):
+    n, hoisted = normalize_expr(e.value)
+    if hoisted:
+        return hoisted.add(Return(maybe_hoist(n, hoisted)))
+    else:
+        return n
 
 @singledispatch
 def normalize_expr(node):
