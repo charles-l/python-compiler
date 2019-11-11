@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# yank the following, and execute :@"
+# set makeprg=python3\ ./compiler.py\ &&\ python3\ ./test_compiler.py
 
 from dataclasses import dataclass
 from functools import singledispatch
@@ -474,6 +476,15 @@ def _(e: Return):
         return hoisted.add(Return(maybe_hoist(n, hoisted)))
     else:
         return n
+
+@normalize_stmt.register(Assign)
+def _(e: Assign):
+    n, hoisted = normalize_expr(e.rhs)
+    norm_a = Assign(e.lhs, n)
+    if hoisted:
+        return hoisted.add(norm_a)
+    else:
+        return norm_a
 
 @singledispatch
 def normalize_expr(node):
