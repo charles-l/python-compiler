@@ -353,26 +353,26 @@ class Block(list):
 
 # took inspiration from namedtuple:
 # https://github.com/python/cpython/blob/58ccd201fa74287ca9293c03136fcf1e19800ef9/Lib/collections/__init__.py#L290
-def nodeclass(name, fields, default_values=[]):
-    if type(fields) == str:
-        fields = fields.replace(',', ' ').split()
+def nodeclass(name, fields, hole_values=[]):
+    fields = fields.replace(',', ' ').split() if type(fields) == str else fields
+    class_namespace = {}
     for i, f in enumerate(fields):
-        if f == '_': assert i < len(default_values), f"default value for {i} is not passed!"
-        if f.startswith('*'): assert i == len(fields) - 1, "splat arg must be last field"
-
-    def __new__(cls, *args):
-        for i, f in enumerate(fields):
-            if f == '_': args = args[:i] + (default_values[i],) + args[i:]
-        return tuple.__new__(cls, args)
-
-    class_namespace = {'__new__': __new__}
-
-    for i, f in enumerate(fields):
-        if f == '_': continue
-        if f.startswith('*'):
+        if f == '_':
+            assert i < len(hole_values), f"default value for {i} is not passed!"
+            continue
+        elif f.startswith('*'):
+            assert i == len(fields) - 1, "splat arg must be last field"
             class_namespace[f.lstrip('*')] = property(lambda self: self[i:], doc=f'alias for elements [{i}:]')
         else:
             class_namespace[f] = property(itemgetter(i), doc=f'alias for element at {i}')
+
+    def __new__(cls, *args):
+        for i, f in enumerate(fields):
+            if f == '_': args = args[:i] + (hole_values[i],) + args[i:]
+        return tuple.__new__(cls, args)
+
+    class_namespace['__new__'] = __new__
+
     return type(name, (tuple,), class_namespace)
 
 FunctionCall = nodeclass('FunctionCall', 'name *args')
