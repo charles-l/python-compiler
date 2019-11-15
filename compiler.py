@@ -5,6 +5,7 @@
 from dataclasses import dataclass
 from functools import singledispatch
 from collections.abc import Iterable
+from operator import itemgetter
 
 class NilToken(str):
     '''
@@ -350,29 +351,34 @@ class Block(list):
             self.append(b)
         return self
 
-class FunctionCall(tuple):
-    def __new__(cls, name, *args):
-        return super(FunctionCall, cls).__new__(cls, tuple((name, *args)))
-    name = property(lambda s: s[0])
-    args = property(lambda s: s[1:])
+# took inspiration from namedtuple:
+# https://github.com/python/cpython/blob/58ccd201fa74287ca9293c03136fcf1e19800ef9/Lib/collections/__init__.py#L290
+def nodeclass(name, fields, default_values=[]):
+    if type(fields) == str:
+        fields = fields.replace(',', ' ').split()
+    for i, f in enumerate(fields):
+        if f == '_': assert i < len(default_values), f"default value for {i} is not passed!"
+        if f.startswith('*'): assert i == len(fields) - 1, "splat arg must be last field"
 
-class Assign(tuple):
-    def __new__(cls, a, b):
-        return super(Assign, cls).__new__(cls, tuple(('=', a, b)))
-    lhs = property(lambda self: self[1])
-    rhs = property(lambda self: self[2])
+    def __new__(cls, *args):
+        for i, f in enumerate(fields):
+            if f == '_': args = args[:i] + (default_values[i],) + args[i:]
+        return tuple.__new__(cls, args)
 
-class If(tuple):
-    def __new__(cls, cond, then, otherwise):
-        return super(If, cls).__new__(cls, tuple(('if', cond, then, otherwise)))
-    cond = property(lambda s: s[1])
-    then = property(lambda s: s[2])
-    otherwise = property(lambda s: s[3])
+    class_namespace = {'__new__': __new__}
 
-class Return(tuple):
-    def __new__(cls, val):
-        return super(Return, cls).__new__(cls, tuple(('return', val)))
-    value = property(lambda s: s[1])
+    for i, f in enumerate(fields):
+        if f == '_': continue
+        if f.startswith('*'):
+            class_namespace[f.lstrip('*')] = property(lambda self: self[i:], doc=f'alias for elements [{i}:]')
+        else:
+            class_namespace[f] = property(itemgetter(i), doc=f'alias for element at {i}')
+    return type(name, (tuple,), class_namespace)
+
+FunctionCall = nodeclass('FunctionCall', 'name *args')
+Assign = nodeclass('Assign', '_ lhs rhs', ['='])
+If = nodeclass('If', '_ cond then otherwise', ['if'])
+Return = nodeclass('Return', '_ value', ['return'])
 
 def intersperse(p, delimp):
     """
