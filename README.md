@@ -10,7 +10,7 @@ for implementing more interesting compiler language features quickly.
 
 * Parser [in progress]
 * Type checker/semantic check pass [TODO]
-* SSA [TODO]
+* ANF [in progress]
 * Code gen [TODO]
 * Optimization passes [TODO]
     * Inlining
@@ -25,3 +25,6 @@ Python before). Most compiler resources utilize languages that, frankly are
 better suited for compiler implementation (I miss my functional pattern matching
 and sum types), but are also more obscure. It takes some time to learn Haskell
 or OCaml, and the code isn't as easy for beginners to these languages to grok.
+
+The goal is to keep the code fairly "python conventional" (inspired particularly
+by the likes of Norvig, `requests`,
