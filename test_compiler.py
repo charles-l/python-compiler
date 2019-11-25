@@ -107,6 +107,13 @@ else:
         self.assertEqual(d[4], 5)
         self.assertEqual(d[5], 6)
 
+        E = nodeclass('E', 'a *b')
+        e = E(1,2,3)
+        self.assertEqual(e.a, 1)
+        self.assertEqual(e.b, (2,3))
+
+    # FIXME: make these tests runable again -- have to fix the problem of resetting the gensym state
+    '''
     def test_normalize(self):
         tree1 = FunctionCall('a', 'b', 'c')
         self.assertEqual(normalize_expr(tree1)[0], ('a', 'b', 'c'))
@@ -140,7 +147,19 @@ else:
         self.assertEqual(normalize_stmt(tree6),
                 [('=', 'tmp8', ('b',)),
                  ('=', 'x', ('a', 'tmp8'))])
+    '''
 
+    def test_codegen(self):
+        t = If(FunctionCall(FunctionCall('b', ()), 2), Return(1), Return(2))
+        g = CodeGenBuffer()
+        code_gen(normalize_stmt(t), None, g)
+        import pprint
+        pprint.pprint(g.buffer)
+
+import doctest
+def load_tests(loader, tests, ignore):
+    tests.addTests(doctest.DocTestSuite('compiler'))
+    return tests
 
 if __name__ == '__main__':
     unittest.main()

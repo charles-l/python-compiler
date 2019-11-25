@@ -43,8 +43,8 @@ class NilToken(str):
 # EMPTY is not ''
 # EMPTY == ''
 EMPTY = NilToken('empty')
-BLOCK_BEGIN = NilToken('block begin')
-BLOCK_END = NilToken('block end')
+INDENT = NilToken('indent')
+DEDENT = NilToken('dedent')
 
 ### Parser combinator
 
@@ -351,7 +351,7 @@ class Block(list):
             self.append(b)
         return self
 
-# took inspiration from namedtuple:
+# took inspiration from collections.namedtuple:
 # https://github.com/python/cpython/blob/58ccd201fa74287ca9293c03136fcf1e19800ef9/Lib/collections/__init__.py#L290
 def nodeclass(name, fields, hole_values=[]):
     fields = fields.replace(',', ' ').split() if type(fields) == str else fields
@@ -401,10 +401,10 @@ def indentation():
             return EMPTY, new_stream
         elif len(c) > stream.indent:
             stream.indent = len(c)
-            return BLOCK_BEGIN, new_stream
+            return INDENT, new_stream
         elif len(c) < stream.indent:
             stream.indent = len(c)
-            return BLOCK_END, new_stream
+            return DEDENT, new_stream
     return indentationf
 
 # we don't care about space, so we discard it
@@ -441,13 +441,13 @@ block = convert(seq(discard(newline), one_or_more(stmt)), lambda x: x[0])
 # <function> := 'def' <space> <identifier> '(' (<identifier> (',' <space> <identifier>)*) ')' ':' <newline> <block>
 function = seq('def', space, identifier, char('('), intersperse(identifier, discard(seq(char(','), space))), char(')'), char(':'), block)
 
-### A-normal form
+### A-normal form normalizer
 
 gensym_counter = 0
-def gensym():
+def gensym(prefix='tmp'):
     global gensym_counter
     gensym_counter += 1
-    return f'tmp{gensym_counter}'
+    return f'{prefix}{gensym_counter}'
 
 def is_trivial(b):
     return type(b) in {str, int, float}
@@ -513,13 +513,96 @@ def _(node: FunctionCall):
         new_args.append(maybe_hoist(a, hoisted))
     return FunctionCall(node.name, *new_args), hoisted
 
-### Code gen
+### Code gen (x86-64)
 
-#call_registers = ['rdi', 'rsi', 'rdx', 'rcx', 'r8', 'r9']
-#def emit_function_call(fcall):
-#    assert fcall[0] == 'call'
-#    _, function_name, args = fcall
+# TODO: register allocation -- go through the tree and tag bindings with registers or memory locations
 
+#import io
+#code_gen_buffer = io.BytesIO()
+
+@dataclass
+class Register:
+    name: str
+    num: int
+
+# FIXME: I don't like this class
+#   I don't like that it holds both architectural details, as well as a buffer that is being written to...
+#   TODO: remove this whole abstraction and just implement the assembly instructions inline, and append to an io buffer
+class CodeGenBuffer:
+    def __init__(self):
+        self.buffer = []
+        _reg_enc = 'rax rcx rdx rbx rsp rbp rsi rdi r8 r9 r10 r11 r12 r13 r14 r15'
+        for i, r in enumerate(_reg_enc.split()):
+            self.__dict__[r] = Register(r, i)
+        self.call_registers = [self.rdi, self.rsi, self.rdx, self.rcx, self.r8, self.r9]
+
+    def push(self, r):
+        self.buffer.append(['push', r.name])
+
+    def mov(self, a, b):
+        self.buffer.append(['mov', a, b])
+
+    def call(self, f):
+        self.buffer.append(['call', f])
+
+    def assign(self, a, b):
+        self.buffer.append(['assign', a, b])
+
+    def branch_if_false(self, label):
+        self.buffer.append(['cmp', 'rax'])
+        self.buffer.append(['bne', label])
+
+    def branch(self, label):
+        self.buffer.append(['ba', label])
+
+    def label(self, label):
+        self.buffer.append(label)
+
+@singledispatch
+def code_gen(node, ctx, g: CodeGenBuffer):
+    assert False, f'unhandled: {node} type {type(node)}'
+
+@code_gen.register(int)
+def _(i: int, ctx, g: CodeGenBuffer):
+    g.mov(i, 'rax')
+
+@code_gen.register(If)
+def _(ifstmt: If, ctx, g: CodeGenBuffer):
+    false_label = gensym('false')
+    end_label = gensym('end')
+    g.mov(ifstmt.cond, g.rax)
+    g.branch_if_false(false_label)
+
+    # true branch:
+    code_gen(ifstmt.then, ctx, g)
+    g.branch(end_label)
+
+    # false branch:
+    g.label(false_label)
+    code_gen(ifstmt.otherwise, ctx, g)
+
+    g.label(end_label)
+
+@code_gen.register(Block)
+def _(block: Block, ctx, g: CodeGenBuffer):
+    for stmt in block: code_gen(stmt, ctx, g)
+
+@code_gen.register(Assign)
+def _(assign: Assign, ctx, g: CodeGenBuffer):
+    g.assign(assign.lhs, assign.rhs)
+
+@code_gen.register(FunctionCall)
+def _(f: FunctionCall, ctx, g: CodeGenBuffer):
+    # TODO: remove this limit and use stack
+    assert len(f.args) < len(g.call_registers), 'too many arguments'
+
+    # spill used registers
+    for r in g.call_registers[:len(f.args)]: g.push(r)
+
+    for r, a in zip(g.call_registers, f.args):
+        g.mov(a, r)
+
+    g.call(f.name)
 
 if __name__ == "__main__":
     import doctest
