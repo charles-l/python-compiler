@@ -149,12 +149,48 @@ else:
                  ('=', 'x', ('a', 'tmp8'))])
     '''
 
+    def test_pack_modrm(self):
+        import compiler
+        def bin(x):
+            return format(x, '#010b').replace('0b', '')
+        self.assertEqual(bin(ord(compiler._pack_modrm(4, 2, '*+disp8'))), '01' '100' '010')
+        self.assertEqual(bin(ord(compiler._pack_modrm(1, 1, '*'))),       '00' '001' '001')
+        self.assertEqual(bin(ord(compiler._pack_modrm(7, 7, 'direct'))),  '11' '111' '111')
+
+    def nasm_assemble(self, code: bytes):
+        import tempfile
+        import subprocess
+        import binascii
+
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            f.write(b'BITS 64\n')
+            f.write(code)
+
+        p = subprocess.Popen(f'nasm -f bin -o {f.name}.out {f.name}'.split(),
+                stdout = subprocess.PIPE,
+                stderr = subprocess.PIPE)
+
+        stdout, stderr = p.communicate()
+
+        if stderr:
+            raise Exception(stdout, stderr)
+
+        with open(f'{f.name}.out', 'rb') as f:
+            return f.read()
+
+    def test_emit(self):
+        self.assertEqual(emit('rax <- rcx'), self.nasm_assemble(b'mov rax, rcx')[1:])
+        self.assertEqual(emit('rax <- rcx'), b'\x89\xc8')
+        self.assertEqual(emit('rcx <- rax'), b'\x89\xc1')
+
+    '''
     def test_codegen(self):
         t = If(FunctionCall(FunctionCall('b', ()), 2), Return(1), Return(2))
-        g = CodeGenBuffer()
+        g = ''
         code_gen(normalize_stmt(t), None, g)
         import pprint
         pprint.pprint(g.buffer)
+    '''
 
 import doctest
 def load_tests(loader, tests, ignore):
