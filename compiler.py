@@ -512,7 +512,7 @@ def _(node: FunctionCall):
         new_args.append(maybe_hoist(a, hoisted))
     return FunctionCall(node.name, *new_args), hoisted
 
-### Code gen (x86-64)
+### Codegen (x86-64)
 # TODO: register allocation -- go through the tree and tag bindings with registers or memory locations
 import struct
 
@@ -631,6 +631,7 @@ def modrm(reg1, reg2_or_mem):
 import io
 codegen_buf = io.BytesIO()
 
+## Assembler
 '''
 Note [x86-64 instruction encoding]:
 ===================================

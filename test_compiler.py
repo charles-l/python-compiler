@@ -1,8 +1,79 @@
 #!/usr/bin/env python3
 import unittest
 from compiler import *
+from collections.abc import Iterable
+
+class Var:
+    def __init__(self, name):
+        self.name = name
+
+    def __hash__(self):
+        return hash(self.name)
 
 class TestCompiler(unittest.TestCase):
+    # XXX: env can't be {} otherwise it doesn't reset the variable because python evals default values only at load
+    def unify(self, a, b, env=None):
+        env = {} if env is None else env
+        def wlg(a, b, cond, then):
+            if cond(a, b):
+                return then(a, b)
+            if cond(b, a):
+                return then(b, a)
+        def chase(v):
+            if type(v) is Var:
+                if v.name in env:
+                    return chase(env[v.name])
+            return v
+
+        if type(a) != str and type(b) != str and isinstance(a, Iterable) and isinstance(b, Iterable):
+            if len(a) != len(b):
+                return None
+            r = {}
+            for x, y in zip(a, b):
+                u = self.unify(x, y, env)
+                if u is None:
+                    return None
+                else:
+                    for k, v in u.items():
+                        r[k] = v
+            return r
+
+        a = chase(a)
+        b = chase(b)
+
+        def assign_var(a, b):
+            env[a.name] = b
+            return env
+
+        if wlg(a, b,
+                lambda a, b: type(a) == Var and type(b) != Var,
+                assign_var):
+            return env
+        if type(a) == type(b) == Var:
+            return env
+
+        if type(a) == Var and type(b) != Var:
+            env[a] = b
+
+        if a == b:
+            return env
+
+        return None
+
+    def test_unify(self):
+        self.assertNotEqual(self.unify(1, 1), None)
+        self.assertEqual(self.unify(1, 2), None)
+        self.assertEqual(self.unify(Var('a'), 2), {'a': 2})
+        self.assertEqual(self.unify([1, Var('a'), 3], [1, 2, 3]), {'a': 2})
+        self.assertEqual(self.unify([1, Var('a'), 2], [1, 2, 3]), None)
+        # XXX: Doesn't work, because we chase down 'a' before 'b' is assigned...
+        # need to backpropagate values if this is to work. This feature isn't really needed atm, though...
+        # self.assertEqual(self.unify([1, Var('a'), 2], [1, Var('b'), Var('b')]), {'a': 2, 'b': 2})
+        self.assertEqual(self.unify([('a', Var('x'), 'c'), ('d', Var('x'), 'f')],
+                                    [('a', 'b', 'c'), ('d', 'b', 'f')]), {'x': 'b'})
+        self.assertEqual(self.unify([('a', Var('x'), 'c'), ('d', Var('x'), 'f')],
+                                    [('a', 'b', 'c'), ('d', 'e', 'f')]), None)
+
     def test_stream(self):
         s = Stream('''Some
 text
@@ -112,42 +183,39 @@ else:
         self.assertEqual(e.a, 1)
         self.assertEqual(e.b, (2,3))
 
-    # FIXME: make these tests runable again -- have to fix the problem of resetting the gensym state
-    '''
     def test_normalize(self):
         tree1 = FunctionCall('a', 'b', 'c')
         self.assertEqual(normalize_expr(tree1)[0], ('a', 'b', 'c'))
 
         tree2 = FunctionCall('a', FunctionCall('b'), 'c')
-        self.assertEqual(normalize_stmt(tree2),
-                [('=', 'tmp1', ('b',)),
-                 ('a', 'tmp1', 'c')])
+        self.unify(normalize_stmt(tree2),
+                [('=', Var('x'), ('b',)),
+                 ('a', Var('x'), 'c')])
 
         tree3 = FunctionCall('a', FunctionCall('b', FunctionCall('x')), 'c')
-        self.assertEqual(normalize_stmt(tree3),
-                [('=', 'tmp2', ('x',)),
-                 ('=', 'tmp3', ('b', 'tmp2')),
-                 ('a', 'tmp3', 'c')])
+        self.unify(normalize_stmt(tree3),
+                [('=', Var('x'), ('x',)),
+                 ('=', Var('y'), ('b', Var('x'))),
+                 ('a', Var('y'), 'c')])
 
         tree4 = If(FunctionCall('b', FunctionCall('x')),
                    'c',
                    FunctionCall('d'))
-        self.assertEqual(normalize_stmt(tree4),
-                [('=', 'tmp4', ('x',)),
-                 ('=', 'tmp5', ('b', 'tmp4')),
-                 ('if', 'tmp5', ['c'], [('d',)])])
+        self.unify(normalize_stmt(tree4),
+                [('=', Var('x'), ('x',)),
+                 ('=', Var('y'), ('b', Var('x'))),
+                 ('if', Var('y'), ['c'], [('d',)])])
 
         tree5 = Return(FunctionCall('a', FunctionCall('b')))
-        self.assertEqual(normalize_stmt(tree5),
-                [('=', 'tmp6', ('b',)),
-                 ('=', 'tmp7', ('a', 'tmp6')),
-                 ('return', 'tmp7')])
+        self.unify(normalize_stmt(tree5),
+                [('=', Var('x'), ('b',)),
+                 ('=', Var('y'), ('a', Var('x'))),
+                 ('return', Var('y'))])
 
         tree6 = Assign('x', FunctionCall('a', FunctionCall('b')))
-        self.assertEqual(normalize_stmt(tree6),
-                [('=', 'tmp8', ('b',)),
-                 ('=', 'x', ('a', 'tmp8'))])
-    '''
+        self.unify(normalize_stmt(tree6),
+                [('=', Var('x'), ('b',)),
+                 ('=', 'x', ('a', Var('x')))])
 
     def test_pack_modrm(self):
         import compiler
