@@ -179,9 +179,14 @@ else:
             return f.read()
 
     def test_emit(self):
-        self.assertEqual(emit('rax <- rcx'), self.nasm_assemble(b'mov rax, rcx')[1:])
-        self.assertEqual(emit('rax <- rcx'), b'\x89\xc8')
-        self.assertEqual(emit('rcx <- rax'), b'\x89\xc1')
+        self.assertEqual(emit('rax <- rcx'), self.nasm_assemble(b'mov rax, rcx'))
+        self.assertEqual(emit('rax <-', 8),  self.nasm_assemble(b'mov rax, 8'))
+        self.assertEqual(emit('rax <-', ('rcx', 8)), self.nasm_assemble(b'mov rax, [rcx+8]'))
+        self.assertEqual(emit('eax <-', ('ecx', 8)), self.nasm_assemble(b'mov eax, [ecx+8]'))
+        self.assertEqual(emit('rax <- rcx'), b'\x48\x89\xc8')
+        self.assertEqual(emit('eax <- ecx'), b'\x89\xc8')
+        self.assertEqual(emit('rcx <- rax'), b'\x48\x89\xc1')
+        self.assertEqual(emit('ecx <- eax'), b'\x89\xc1')
 
     '''
     def test_codegen(self):

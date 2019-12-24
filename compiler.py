@@ -521,9 +521,21 @@ def pack8(imm):
 def pack32(imm):
     return struct.pack('<L', imm)
 
-def reg_p(x): return x in regs
-def small_reg_p(x): return reg_p(x) and regs[x] < 8
-def mem_p(x): return list(x) or tuple(x)
+def reg64_p(x): return x in regs64
+def reg32_p(x): return x in regs32
+
+def get_reg_p(reg):
+    if reg64_p(reg): return reg64_p
+    if reg32_p(reg): return reg32_p
+
+def get_reg_t(reg):
+    if reg64_p(reg): return regs64
+    if reg32_p(reg): return regs32
+
+def general_purpose_reg64(x): return reg64_p(x) and regs64[x] < 8
+def mem_p(reg_p):
+    assert(reg_p in (reg64_p, reg32_p))
+    return lambda x: type(x) in (list, tuple) and reg_p(x[0])
 def or_p(a, b): return lambda x: a(x) or b(x)
 def imm32_p(x): return type(x) == int
 def imm8_p(x): return type(x) == int and 0 <= x <= 255
@@ -544,28 +556,28 @@ def modrm(reg1, reg2_or_mem):
 
     Example 1.
 
-            mov modrm('rax', 'rcx')                  # rcx = rax
+            mov modrm('eax', 'ecx')                  # ecx = eax
 
-        To emit an instruction to move the contents of rax into rcx, we want to encode the ModR/M byte
+        To emit an instruction to move the contents of eax into ecx, we want to encode the ModR/M byte
         using "direct" addressing (i.e. no memory offsets -- just copy one register directly into the other).
         We would encode this into a two byte sequence:
 
             [byte 1  (mov opcode)] '1011001'
-            [byte 2 (ModR/M byte)] '11' (direct mod), '000' (rax), '001' (rcx)
+            [byte 2 (ModR/M byte)] '11' (direct mod), '000' (eax), '001' (ecx)
 
         `[byte 2]` is the "argument" to the mov opcode. `mod` is kind of like a flag that changes the way `mov`
         can work. When set to '11' it uses direct mode.
 
     Example 2.
 
-            mov modrm('rax', ['rcx'])                # rcx = *rax
+            mov modrm('eax', ['ecx'])                # ecx = *eax
 
-        In this situation, we actually want to treat the value in rax as a pointer. Instead of rax's its value
-        to rcx, we want to dereference it, and copy the value at the memory location to rcx. This is called
+        In this situation, we actually want to treat the value in eax as a pointer. Instead of eax's its value
+        to ecx, we want to dereference it, and copy the value at the memory location to ecx. This is called
         'indirect' addressing, since we're doing pointer dereference (indirection) to access the value.
 
             [byte 1  (mov opcode)] '1011001'
-            [byte 2 (ModR/M byte)] '00' (indirect mod), '000' (rax), '001' (rcx)
+            [byte 2 (ModR/M byte)] '00' (indirect mod), '000' (eax), '001' (ecx)
 
         The ModR/M byte is only 1 bit different than the previous example, but performs a very different
         function.
@@ -573,18 +585,18 @@ def modrm(reg1, reg2_or_mem):
     Example 3.
         If we want to emit an instruction sequence to perform the following:
 
-            mov modrm('rax', ['rdx', 4]) rdx = *(rax + 4)
+            mov modrm('eax', ['edx', 4]) edx = *(eax + 4)
 
         Which may be more recognizable in the following form:
 
-            rdx = rax[4]
+            edx = eax[4]
 
-        We want to take the memory address in rax, add 4 to it, and get the value there. We could emit a
+        We want to take the memory address in eax, add 4 to it, and get the value there. We could emit a
         sequence of instructions to essentially perform:
 
-            rcx = rax
-            rcx += 4
-            rdx = *rcx
+            ecx = eax
+            ecx += 4
+            edx = *ecx
 
         However, dereferencing a register plus a known offset is such a common operation that having to emit
         3 instructions every time this came up would lead to inefficiency and code bloat. That's why the ModR/M
@@ -595,13 +607,15 @@ def modrm(reg1, reg2_or_mem):
         The function will emit:
 
             [byte 1  (mov opcode)] '1011001'
-            [byte 2 (ModR/M byte)] '01' (indirect + disp8 mod), '000' (rax), '010' (rdx)
+            [byte 2 (ModR/M byte)] '01' (indirect + disp8 mod), '000' (eax), '010' (edx)
             [byte 3       (disp8)] '0000100' (offset)
 
 
     For info: https://wiki.osdev.org/X86-64_Instruction_Encoding#ModR.2FM_and_SIB_bytes
     '''
-    if type(reg2_or_mem) == list:
+    reg_p = get_reg_p(reg1)
+    regs = get_reg_t(reg1)
+    if mem_p(reg_p)(reg2_or_mem):
         reg2 = reg2_or_mem[0]
         offset = 0 if len(reg2_or_mem) == 1 else reg2_or_mem[1]
         if not offset: # *reg2
@@ -617,28 +631,64 @@ def modrm(reg1, reg2_or_mem):
 import io
 codegen_buf = io.BytesIO()
 
-# see https://wiki.osdev.org/X86-64_Instruction_Encoding#Registers
-regs = {r: i for i, r in enumerate('rax rcx rdx rbx rsp rbp rsi rdi r8 r9 r10 r11 r12 r13 r14 r15'.split())}
+'''
+Note [x86-64 instruction encoding]:
+===================================
+
+x86-64 opcodes are encoded according to the following pattern:
+    <opcode> := <legacy_prefix (1-4 bytes)>?
+                <opcode_with_prefix (1-4 bytes)>
+                <ModR/M (1 byte)>?
+                <SIB (1 byte)>?
+                <displacement (1, 2, 4, or 8 bytes)>?
+                <immediate (1, 2, 4, or 8 bytes)>?
+
+The legacy prefix or opcode prefix just change the behavior of the opcode (they modify which
+addressing mode is used (e.g. 32 or 64 bit), allow use of extended registers or just make more
+opcodes available to use)
+
+If an code utilizes an immediate value, it will require the little endian encoded value to be included.
+
+ModR/M bytes encode registers/memory offsets for instructions. If a memory offset is used
+in the ModR/M byte, then displacement bytes will be required. See modrm() for more info.
+
+TODO: explain SIB bytes
+
+See https://wiki.osdev.org/X86-64_Instruction_Encoding for more information.
+'''
+
+# Registers are encoded by index, see Note [x86-64 instruction encoding] for more info
+regs64 = {r: i for i, r in enumerate('rax rcx rdx rbx rsp rbp rsi rdi r8 r9 r10 r11 r12 r13 r14 r15'.split())}
+regs32 = {r: i for i, r in enumerate('eax ecx edx ebx esp ebp esi edi r8d r9d r10d r11d r12d r13d r14d r15d'.split())}
 
 # a full opcode list can be found here: http://ref.x86asm.net/coder64.html
 ops = [
+        ## CONTROL FLOW
         (('ret',), lambda _: '\xc3'),
+
+        ## MOVS
         # reg -> reg moves get encoded with 0x89 because this is what NASM does. NASM gets used for testing
-        # so I did it to be consistent, but someone did more an analysis at some point:
+        # so I did it to be consistent, but someone did a bit more of an analysis here:
         # http://0x5a4d.blogspot.com/2009/12/on-moving-register.html
-        ((or_p(reg_p, mem_p), '<-', reg_p), lambda x, _, r1: b'\x89' + modrm(r1, x)),
-        ((reg_p, '<-', mem_p), lambda r1, _, x: b'\x8b' + modrm(r1, x)),
-        ((small_reg_p, '<-', imm32_p), lambda r, _, i: pack8(int('\xc7') + r) + pack32(i)),
+
+        ((or_p(reg32_p, mem_p(reg32_p)), '<-', reg32_p), lambda x, _, r1: b'\x89' + modrm(r1, x)),
+        # 0x67 prefix for 32-bit address override (see
+        ((reg32_p, '<-', mem_p(reg32_p)), lambda r1, _, x: b'\x67\x8b' + modrm(r1, x)),
+        # 64 bit movs have a 0x48 prefix to specify 64-bit registers
+        ((or_p(reg64_p, mem_p(reg64_p)), '<-', reg64_p), lambda x, _, r1: b'\x48\x89' + modrm(r1, x)),
+        ((reg64_p, '<-', mem_p(reg64_p)), lambda r1, _, x: b'\x48\x8b' + modrm(r1, x)),
+
+        ((general_purpose_reg64, '<-', imm32_p), lambda r, _, i: pack8(ord(b'\xb8') + regs64[r]) + pack32(i)),
 ]
 
 def emit(*args):
     '''
-    >>> emit('rax', '<-', 'rcx') == b'\\x89\\xc8' # binary for mov rcx, rax
+    >>> emit('rax', '<-', 'rcx') == b'\\x48\\x89\\xc8' # binary for mov rcx, rax
     True
-    >>> emit('rax <- rcx') == b'\\x89\\xc8' # cutesy syntax
+    >>> emit('rax <- rcx') == b'\\x48\\x89\\xc8' # cutesy syntax
     True
     '''
-    args = sum(map(str.split, args), []) # allow cutsey syntax
+    args = sum(map(lambda x: str.split(x) if type(x) == str else [x], args), []) # allow cutsey syntax
     for op, encoder_f in ops:
         if len(op) != len(args):
             continue
@@ -646,7 +696,7 @@ def emit(*args):
         for o, v in zip(op, args):
             if (type(o) == str or type(o) == int) and o != v:
                 break
-            if type(o) == callable and not o(v):
+            if callable(o) and not o(v):
                 break
         else:
             return encoder_f(*args)
