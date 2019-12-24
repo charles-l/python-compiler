@@ -666,6 +666,10 @@ ops = [
         ## CONTROL FLOW
         (('ret',), lambda _: '\xc3'),
 
+        ## COMPARISONS
+        (('cmp', reg32_p, or_p(reg32_p, mem_p(reg32_p))), lambda _, r1, x: b'\x39' + modrm(r1, x)),
+        (('cmp', reg64_p, or_p(reg64_p, mem_p(reg64_p))), lambda _, r1, x: b'\x48\x39' + modrm(r1, x)),
+
         ## MOVS
         # reg -> reg moves get encoded with 0x89 because this is what NASM does. NASM gets used for testing
         # so I did it to be consistent, but someone did a bit more of an analysis here:
@@ -700,7 +704,7 @@ def emit(*args):
                 break
         else:
             return encoder_f(*args)
-    assert False, f"unknown encoding for {args}"
+    assert False, f"unknown opcode for {args}"
 
 @singledispatch
 def code_gen(node, ctx, g):

@@ -11,7 +11,7 @@ for implementing more interesting compiler language features quickly.
 * Parser [in progress]
 * Type checker/semantic check pass [TODO]
 * ANF [in progress]
-* Code gen [TODO]
+* Code gen [in progress]
 * Optimization passes [TODO]
     * Inlining
     * Vectorizing
