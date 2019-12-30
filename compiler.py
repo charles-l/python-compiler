@@ -5,6 +5,7 @@
 from dataclasses import dataclass
 from functools import singledispatch
 from operator import itemgetter
+from typing import Callable, Tuple
 
 class NilToken(str):
     '''
@@ -56,6 +57,8 @@ class Stream:
     row = property(lambda self: sum((1 for c in self._stream[:self.i] if c == '\n')))
     col = property(lambda self: next((j for j in range(self.i) if self._stream[self.i - j] == '\n'), self.i))
     def empty(self): return self.i >= len(self._stream)
+
+ParserT = Callable[[Stream], Tuple[object, Stream]]
 
 @dataclass
 class ParseError:
@@ -416,37 +419,37 @@ def indentation(expect='same'):
 
 # we don't care about space, so we discard it
 # <space> := (' ' | '\t')*
-space = discard(many(char(" \t")))
+space: ParserT = discard(many(char(" \t")))
 # <newline> := '\n'
-newline = discard(char("\n"))
+newline: ParserT = discard(char("\n"))
 # <number> := <digit> <digit>*
-number = convert(one_or_more(digit), lambda x: int("".join(x)))
+number: ParserT = convert(one_or_more(digit), lambda x: int("".join(x)))
 # <identifier> := <alpha> (<alphanumeric> | '-' | '_')*
-identifier = convert(seq(alpha, many(oneof(alphanumeric, char("-_")))), lambda x: "".join([x[0]] + x[1]))
+identifier: ParserT = convert(seq(alpha, many(oneof(alphanumeric, char("-_")))), lambda x: "".join([x[0]] + x[1]))
 # <function-call> := <identifier> '(' <expr> (',' <space> <expr>)* ')'
-function_call = convert(
+function_call: ParserT = convert(
         seq(identifier, discard(char("(")), intersperse(lambda x: expr(x), discard(seq(char(","), space))), discard(char(")"))),
         lambda x: ["call"] + x)
 
 # <expr> := <number> | <function-call> | <identifier>
 # NOTE potential ambiguity of function-call vs identifier since they both start with an identifier
-expr = oneof(number, function_call, identifier) # NOTE: order matters here (can't do identifier, function call)
+expr: ParserT = oneof(number, function_call, identifier) # NOTE: order matters here (can't do identifier, function call)
 # <assign-stmt-body> := <identifier> <space> '=' <space> <expr>
-assign_stmt_body = convert(seq(identifier, space, discard(char("=")), space, expr), lambda x: ["=", x[0], x[1]])
+assign_stmt_body: ParserT = convert(seq(identifier, space, discard(char("=")), space, expr), lambda x: ["=", x[0], x[1]])
 # <return-stmt-body> := 'return' <space> <expr>
-return_stmt_body = seq('return', space, expr)
+return_stmt_body: ParserT = seq('return', space, expr)
 
-if_stmt = seq('if', space, expr, discard(char(':')),
+if_stmt: ParserT = seq('if', space, expr, discard(char(':')),
         lambda x: block(x),
         'else', discard(char(':')),
         lambda x: block(x))
 
 # <stmt> := (<return-stmt-body> | <assign-stmt-body | <if-stmt> | <expr>) <newline>
-stmt = convert(seq(oneof(return_stmt_body, assign_stmt_body, expr), newline), lambda x: x[0])
+stmt: ParserT = convert(seq(oneof(return_stmt_body, assign_stmt_body, expr), newline), lambda x: x[0])
 # <block> := <newline> (<indentation> <stmt>)+
-block = convert(seq(newline, one_or_more(convert(seq(indentation('indent'), stmt), lambda x: x[0]))), lambda x: x[0])
+block: ParserT = convert(seq(newline, one_or_more(convert(seq(indentation('indent'), stmt), lambda x: x[0]))), lambda x: x[0])
 # <function> := 'def' <space> <identifier> '(' (<identifier> (',' <space> <identifier>)*) ')' ':' <newline> <block>
-function = seq('def', space, identifier, char('('), intersperse(identifier, discard(seq(char(','), space))), char(')'), char(':'), block)
+function: ParserT = seq('def', space, identifier, char('('), intersperse(identifier, discard(seq(char(','), space))), char(')'), char(':'), block)
 
 ### A-normal form normalizer
 
@@ -471,8 +474,8 @@ def _(block):
         norm_block.add(normalize_stmt(b))
     return norm_block
 
-@normalize_stmt.register(If)
-def _(ifnode: If):
+@normalize_stmt.register(If) # type: ignore
+def _(ifnode):
     norm_cond, hoisted = normalize_expr(ifnode.cond)
     norm_then = normalize_stmt(ifnode.then)
     norm_otherwise = normalize_stmt(ifnode.otherwise)
@@ -482,18 +485,18 @@ def _(ifnode: If):
     else:
         return norm_if
 
-@normalize_stmt.register(Return)
-def _(e: Return):
-    n, hoisted = normalize_expr(e.value)
+@normalize_stmt.register(Return) # type: ignore
+def _(ret):
+    n, hoisted = normalize_expr(ret.value)
     if hoisted:
         return hoisted.add(Return(maybe_hoist(n, hoisted)))
     else:
         return n
 
-@normalize_stmt.register(Assign)
-def _(e: Assign):
-    n, hoisted = normalize_expr(e.rhs)
-    norm_a = Assign(e.lhs, n)
+@normalize_stmt.register(Assign) # type: ignore
+def _(assign):
+    n, hoisted = normalize_expr(assign.rhs)
+    norm_a = Assign(assign.lhs, n)
     if hoisted:
         return hoisted.add(norm_a)
     else:
@@ -510,15 +513,15 @@ def maybe_hoist(expr, hoisted):
     hoisted.add(Assign(new_var, expr))
     return new_var
 
-@normalize_expr.register(FunctionCall)
-def _(node: FunctionCall):
+@normalize_expr.register(FunctionCall) # type: ignore
+def _(function_call):
     new_args = []
     hoisted = Block()
-    for arg in node.args:
+    for arg in function_call.args:
         a, h_ = normalize_expr(arg)
         hoisted.add(h_)
         new_args.append(maybe_hoist(a, hoisted))
-    return FunctionCall(node.name, *new_args), hoisted
+    return FunctionCall(function_call.name, *new_args), hoisted
 
 ### Codegen (x86-64)
 # TODO: register allocation -- go through the tree and tag bindings with registers or memory locations
@@ -719,12 +722,12 @@ def emit(*args):
 def code_gen(node, ctx, g):
     assert False, f'unhandled: {node} type {type(node)}'
 
-@code_gen.register(int)
-def _(i: int, ctx, g):
+@code_gen.register(int) # type: ignore
+def _(i: int, ctx, g): # type: ignore
     g.append(emit('rax', '<-', i))
 
-@code_gen.register(If)
-def _(ifstmt: If, ctx, g):
+@code_gen.register(If) # type: ignore
+def _(ifstmt, ctx, g):
     false_label = gensym('false')
     end_label = gensym('end')
     code_gen(ifstmt.cond, ctx, g)
@@ -740,12 +743,12 @@ def _(ifstmt: If, ctx, g):
 
     g.append(emit_label(end_label))
 
-@code_gen.register(Block)
-def _(block: Block, ctx, g):
+@code_gen.register(Block) # type: ignore
+def _(block: Block, ctx, g): # type: ignore
     for stmt in block: code_gen(stmt, ctx, g)
 
-@code_gen.register(Assign)
-def _(assign: Assign, ctx, g):
+@code_gen.register(Assign) # type: ignore
+def _(assign: Assign, ctx, g): # type: ignore
     code_gen(assign.rhs, ctx, g)
     g.append(emit(assign.lhs, '<-', 'rax'))
 
