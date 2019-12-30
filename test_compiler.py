@@ -2,6 +2,7 @@
 import unittest
 from compiler import *
 from collections.abc import Iterable
+import textwrap
 
 class Var:
     def __init__(self, name):
@@ -123,13 +124,34 @@ on some lines''')
         self.assertEqual(parse('l33t c0d3r', identifier), 'l33t')
         self.assertEqual(parse('val+34', identifier), 'val')
 
+    def test_parse_block(self):
+        self.assertEqual(parse(textwrap.dedent(
+            '''\
+            a
+                b
+            c'''), seq(identifier, block)), ['a', ['b']])
+
     def test_if(self):
-        self.assertEqual(parse(
-'''if true:
-    print(2)
-else:
-    return 1
-''', if_stmt), ['if', 'true', [['call', 'print', [2]]], 'else', [['return', 1]]])
+        self.assertEqual(parse(textwrap.dedent(
+                        '''\
+                        if true:
+                            print(2)
+                            print(3)
+                        else:
+                            return 1
+                            return 2
+                        blah_blah()
+                        '''), if_stmt),
+                        ['if', 'true', [['call', 'print', [2]], ['call', 'print', [3]]], 'else', [['return', 1], ['return', 2]]])
+        self.assertEqual(parse(textwrap.dedent(
+                        '''\
+                        if true:
+                            print(1)
+                            print(2)
+                        else:
+                            return 1
+                        '''), if_stmt),
+                        ['if', 'true', [['call', 'print', [1]], ['call', 'print', [2]]], 'else', [['return', 1]]])
 
     def test_block(self):
         b1 = Block('a', 'b', 'c')

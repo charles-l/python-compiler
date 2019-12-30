@@ -390,20 +390,28 @@ def intersperse(p, delimp):
     """
     return convert(seq(p, many(seq(delimp, p))), lambda x: [x[0]] + sum(x[1], []))
 
-def indentation():
+def indentation(expect='same'):
     p = many(char(" "))
     def indentationf(stream):
         c, new_stream = p(stream)
         if type(c) == ParseError:
             return c, stream
+
         if len(c) == stream.indent:
-            return EMPTY, new_stream
+            actual = 'same'
         elif len(c) > stream.indent:
-            stream.indent = len(c)
-            return INDENT, new_stream
+            actual = 'indent'
         elif len(c) < stream.indent:
-            stream.indent = len(c)
-            return DEDENT, new_stream
+            actual = 'dedent'
+        else:
+            assert False
+
+        if expect != actual:
+            return ParseError(stream, f'indentation level: {expect}', f'indentation level: {actual}'), stream
+        else:
+            new_stream.indent = len(c)
+            return EMPTY, new_stream
+
     return indentationf
 
 # we don't care about space, so we discard it
@@ -433,10 +441,10 @@ if_stmt = seq('if', space, expr, discard(char(':')),
         'else', discard(char(':')),
         lambda x: block(x))
 
-# <stmt> := <indentation> (<return-stmt-body> | <assign-stmt-body | <if-stmt> | <expr>) <newline>
-stmt = convert(seq(discard(indentation()), oneof(return_stmt_body, assign_stmt_body, expr), newline), lambda x: x[0])
-# <block> := newline, BLOCK_BEGIN (<stmt>)+ BLOCK_END
-block = convert(seq(discard(newline), one_or_more(stmt)), lambda x: x[0])
+# <stmt> := (<return-stmt-body> | <assign-stmt-body | <if-stmt> | <expr>) <newline>
+stmt = convert(seq(oneof(return_stmt_body, assign_stmt_body, expr), newline), lambda x: x[0])
+# <block> := <newline> (<indentation> <stmt>)+
+block = convert(seq(newline, one_or_more(convert(seq(indentation('indent'), stmt), lambda x: x[0]))), lambda x: x[0])
 # <function> := 'def' <space> <identifier> '(' (<identifier> (',' <space> <identifier>)*) ')' ':' <newline> <block>
 function = seq('def', space, identifier, char('('), intersperse(identifier, discard(seq(char(','), space))), char(')'), char(':'), block)
 
