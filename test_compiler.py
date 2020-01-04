@@ -304,11 +304,15 @@ on some lines''')
 
     def test_labels(self):
         r1 = []
+        r1.append(emit('j l'))
+        r1.append(emit('j l'))
         emit_label('l', r1)
         r1.append(emit('rax <- 1'))
         r1.append(emit('add eax eax'))
         r1.append(emit('j l'))
         self.assertEqual(pass2(r1), self.nasm_assemble(b'''
+            jmp l
+            jmp l
             l:
             mov eax, 1
             add eax, eax
@@ -317,15 +321,21 @@ on some lines''')
 
         r2 = []
         r2.append(emit('rax <- 1'))
+        r2.append(emit('jne l'))
+        r2.append(emit('jne l'))
         emit_label('l', r2)
         r2.append(emit('add eax eax'))
         r2.append(emit('cmp rax 2000'))
         r2.append(emit('jne l'))
+        r2.append(emit('jne l'))
         self.assertEqual(pass2(r2), self.nasm_assemble(b'''
             mov eax, 1
+            jne l
+            jne l
             l:
             add eax, eax
             cmp rax, 2000
+            jne l
             jne l
             '''))
 
