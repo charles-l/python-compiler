@@ -14,6 +14,7 @@ for implementing more interesting compiler language features quickly.
 * Type checker/semantic check pass [TODO]
 * ANF [in progress]
 * Code gen [in progress]
+* x86-64 assembler [in progress]
 * Optimization passes [TODO]
     * Inlining
     * Vectorizing
@@ -29,4 +30,5 @@ and sum types), but are also more obscure. It takes some time to learn Haskell
 or OCaml, and the code isn't as easy for beginners to these languages to grok.
 
 The goal is to keep the code fairly "python conventional" (inspired particularly
-by the likes of Norvig, `requests`,
+by the likes of Norvig, `requests`, and other python code that minimizes use of OO in
+favor of directness)
