@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from functools import singledispatch
 from operator import itemgetter
 from typing import Callable, Tuple, List, Union
+import itertools
 
 class NilToken(str):
     '''
@@ -688,13 +689,12 @@ def pass2(instructions: List[Union[bytes, Callable, tuple]]) -> bytes:
     '''
     r = b''
     for i in instructions:
-        if isinstance(i, tuple):
-            for x in i:
-                r += x(len(r)) if callable(x) else x
+        if callable(i):
+            r += i(len(r))
         elif isinstance(i, bytes):
             r += i
         else:
-            assert False
+            assert False, f'{type(i)} not handled'
     return r
 
 # a full opcode list can be found here: http://ref.x86asm.net/coder64.html
@@ -703,11 +703,14 @@ ops = [
         (('ret',), lambda _: b'\xc3'),
 
         # FIXME: calculate distance and emit correct opcode based on whether it's a short or long jump
-        (('j', label_p), lambda _, l: (b'\xeb', lambda x: pack8(compute_offset(l)(x) - 1, signed=True))),
+        (('j', label_p), lambda _, l: lambda x: b'\xeb' + pack8(compute_offset(l)(x) - 2, signed=True)),
+        (('jne', label_p), lambda _, l: lambda x: b'\x75' + pack8(compute_offset(l)(x) + 2, signed=True)),
 
         ## COMPARISONS
         (('cmp', reg32_p, or_p(reg32_p, mem_p(reg32_p))), lambda _, r1, x: b'\x39' + modrm(r1, x)),
         (('cmp', reg64_p, or_p(reg64_p, mem_p(reg64_p))), lambda _, r1, x: b'\x48\x39' + modrm(r1, x)),
+        (('cmp', 'eax', imm32_p), lambda _1, _2, x: b'\x3d' + pack32(x)),
+        (('cmp', 'rax', imm32_p), lambda _1, _2, x: b'\x48\x3d' + pack32(x)),
 
         ## MOVS
         # reg -> reg moves get encoded with 0x89 because this is what NASM does. NASM gets used for testing
@@ -734,7 +737,12 @@ def emit(*args):
     >>> emit('rax <- rcx') == b'\\x48\\x89\\xc8' # cutesy syntax
     True
     '''
-    args = sum(map(lambda x: str.split(x) if type(x) == str else [x], args), []) # allow cutsey syntax
+    def maybe_int(x):
+        try:
+            return int(x)
+        except:
+            return x
+    args = list(itertools.chain(*map(lambda x: map(maybe_int, str.split(x)) if type(x) == str else [x], args))) # allow cutsey syntax
     for op, encoder_f in ops:
         if len(op) != len(args):
             continue

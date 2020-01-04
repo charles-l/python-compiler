@@ -296,22 +296,38 @@ on some lines''')
         # cmps
         self.assertEqual(emit('cmp eax ecx'), self.nasm_assemble(b'cmp ecx, eax'))
         self.assertEqual(emit('cmp rax rcx'), self.nasm_assemble(b'cmp rcx, rax'))
+        self.assertEqual(emit('cmp eax', 3000), self.nasm_assemble(b'cmp eax, 3000'))
+        self.assertEqual(emit('cmp rax', 3000), self.nasm_assemble(b'cmp rax, 3000'))
 
         # arithmetic
         self.assertEqual(emit('add eax ecx'), self.nasm_assemble(b'add eax, ecx'))
 
     def test_labels(self):
-        r = []
-        emit_label('l', r)
-        r.append(emit('rax <-', 1))
-        r.append(emit('add eax eax'))
-        r.append(emit('j l'))
-        self.assertEqual(pass2(r), self.nasm_assemble(b'''
+        r1 = []
+        emit_label('l', r1)
+        r1.append(emit('rax <- 1'))
+        r1.append(emit('add eax eax'))
+        r1.append(emit('j l'))
+        self.assertEqual(pass2(r1), self.nasm_assemble(b'''
             l:
             mov eax, 1
             add eax, eax
             jmp l
         '''))
+
+        r2 = []
+        r2.append(emit('rax <- 1'))
+        emit_label('l', r2)
+        r2.append(emit('add eax eax'))
+        r2.append(emit('cmp rax 2000'))
+        r2.append(emit('jne l'))
+        self.assertEqual(pass2(r2), self.nasm_assemble(b'''
+            mov eax, 1
+            l:
+            add eax, eax
+            cmp rax, 2000
+            jne l
+            '''))
 
     '''
     def test_codegen(self):
