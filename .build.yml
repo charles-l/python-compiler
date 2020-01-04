@@ -3,4 +3,4 @@ packages:
     - python3
 tasks:
     - run_tests: |
-        python3 ./test_compiler.py
+        cd python-compiler && python3 ./test_compiler.py
