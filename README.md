@@ -1,6 +1,8 @@
 # A python compiler
 *for educational purposes...*
 
+[![builds.sr.ht status](https://builds.sr.ht/~nch/python-compiler/.build.yml.svg)](https://builds.sr.ht/~nch/python-compiler/.build.yml?)
+
 This project is an attempt to build a useful compiler with as few lines of code
 as possible and no fewer. The goal is to keep it in the thousands, while still
 having non-trivial features such as nice error messages and optimization passes.

@@ -1,6 +1,7 @@
 image: alpine/edge
 packages:
     - python3
+    - nasm
 tasks:
     - run_tests: |
         cd python-compiler && python3 ./test_compiler.py
