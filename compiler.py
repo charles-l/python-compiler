@@ -688,10 +688,10 @@ def pass2(instructions: List[Union[bytes, Callable, tuple]]) -> bytes:
     '''
     r = b''
     for i in instructions:
-        if type(i) == tuple:
+        if isinstance(i, tuple):
             for x in i:
                 r += x(len(r)) if callable(x) else x
-        elif type(i) == bytes:
+        elif isinstance(i, bytes):
             r += i
         else:
             assert False
