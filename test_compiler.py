@@ -3,6 +3,7 @@ import unittest
 from compiler import *
 from collections.abc import Iterable
 import textwrap
+import os
 
 class Var:
     def __init__(self, name):
@@ -339,14 +340,19 @@ on some lines''')
             jne l
             '''))
 
-    '''
     def test_codegen(self):
-        t = If(FunctionCall(FunctionCall('b', ()), 2), Return(1), Return(2))
-        g = ''
+        t = If(1, 7, 4)
+        g = []
         code_gen(normalize_stmt(t), None, g)
-        import pprint
-        pprint.pprint(g.buffer)
-    '''
+
+        postlude = emit('rdi <- rax') +\
+                   emit('rax <- 60') +\
+                   emit('syscall')
+        with open('a.bin', 'wb') as f:
+            f.write(write_elf(pass2(g) + postlude))
+        os.system("chmod +x a.bin")
+        r = os.system("./a.bin")
+        self.assertEqual(7, r >> 8)
 
 import doctest
 def load_tests(loader, tests, ignore):

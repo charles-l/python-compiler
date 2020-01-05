@@ -530,8 +530,14 @@ import struct
 def pack8(imm, signed=False):
     return struct.pack('b' if signed else 'B', imm)
 
+def pack16(imm):
+    return struct.pack('H', imm)
+
 def pack32(imm):
     return struct.pack('<L', imm)
+
+def pack64(imm):
+    return struct.pack('<Q', imm)
 
 def reg64_p(x): return x in regs64
 def reg32_p(x): return x in regs32
@@ -700,6 +706,42 @@ def pass2(instructions: List[Union[bytes, tuple]]) -> bytes:
             assert False, f'{type(i)} not handled'
     return r
 
+def write_elf(text_section: bytes) -> bytes:
+    '''
+    for more info see:
+    * https://www.muppetlabs.com/~breadbox/software/tiny/teensy.html
+    * https://cirosantilli.com/elf-hello-world
+    * `man elf`
+    '''
+
+    entry_vaddr = 0x401000
+    #                          magic        class  data           version  abi version  padding
+    #                                       elf64  little endian  1
+    ident = struct.pack('16b', *b'\x7fELF', 2,     1,             1,       0,           *([0] * 8))
+    ehsize = 64
+    phentsize = 56
+    fsize = ehsize + phentsize + len(text_section)
+    #             ident   type       machine     version    entry
+    #                     exec       x86_64      1
+    elf_header = [ident, pack16(2), pack16(62), pack32(1), pack64(entry_vaddr + ehsize + phentsize)]
+    #              phoff                          shoff
+    elf_header += [pack64(ehsize), pack64(0)]
+    #              flags       ehsize                 phentsize
+    #              none        size of this header
+    elf_header += [pack32(0),  pack16(ehsize),        pack16(phentsize)]
+    #              phnum      shentsize  shnum      shstrndx
+    elf_header += [pack16(1), pack16(0), pack16(0), pack16(0)]
+
+    #          type         flags        offset
+    #          PT_LOAD      X | R
+    pheader = [pack32(1),  pack32(1|4), pack64(0)]
+    #           vaddr                paddr                filesize
+    pheader += [pack64(entry_vaddr), pack64(entry_vaddr), pack64(fsize)]
+    #           textsize                   align
+    pheader += [pack64(fsize), pack64(0x1000)]
+
+    return b''.join(elf_header + pheader) + text_section
+
 # a full opcode list can be found here: http://ref.x86asm.net/coder64.html
 ops = [
         ## CONTROL FLOW
@@ -707,6 +749,7 @@ ops = [
 
         # FIXME: calculate distance and emit correct opcode based on whether it's a short or long jump
         (('j', label_p), lambda _, l: (2, lambda x: b'\xeb' + pack8(compute_offset(l)(x), signed=True))),
+        (('je', label_p), lambda _, l: (2, lambda x: b'\x74' + pack8(compute_offset(l)(x), signed=True))),
         (('jne', label_p), lambda _, l: (2, lambda x: b'\x75' + pack8(compute_offset(l)(x), signed=True))),
 
         ## COMPARISONS
@@ -730,7 +773,10 @@ ops = [
         ((general_purpose_reg64, '<-', imm32_p), lambda r, _, i: pack8(ord(b'\xb8') + regs64[r]) + pack32(i)),
 
         ## ARITHMETIC
-        (('add', reg32_p, reg32_p), lambda _, r1, r2: b'\x01' + modrm(r2, r1))
+        (('add', reg32_p, reg32_p), lambda _, r1, r2: b'\x01' + modrm(r2, r1)),
+
+        (('syscall',), lambda _: b'\x0f\x05'),
+        (('int', imm32_p), lambda _, x: b'\xcd' + pack8(x))
 ]
 
 def emit(*args):
@@ -767,16 +813,20 @@ def code_gen(node, ctx, g):
 def _(i: int, ctx, g): # type: ignore
     g.append(emit('rax', '<-', i))
 
+def asmlen(xs: List[Union[bytes, tuple]]) -> int:
+    return sum(x[0] if isinstance(x, tuple) else len(x) for x in xs)
+
 labels = {}
 def emit_label(name, g):
-    labels[name] = sum(x[0] if isinstance(x, tuple) else len(x) for x in g)
+    labels[name] = asmlen(g)
 
 @code_gen.register(If) # type: ignore
 def _(ifstmt, ctx, g):
     false_label = gensym('false')
     end_label = gensym('end')
     code_gen(ifstmt.cond, ctx, g)
-    g.append(emit('jne', false_label))
+    g.append(emit('cmp rax', 0))
+    g.append(emit('je', false_label))
 
     # true branch:
     code_gen(ifstmt.then, ctx, g)
