@@ -340,10 +340,16 @@ on some lines''')
             jne l
             '''))
 
-    def test_codegen(self):
+    def test_compiler(self):
         t = If(1, 7, 4)
         g = []
-        code_gen(normalize_stmt(t), None, g)
+        code_gen(normalize_stmt(parse(textwrap.dedent(
+        '''\
+        if 1:
+            7
+        else:
+            4
+        '''), if_stmt)), None, g)
 
         postlude = emit('rdi <- rax') +\
                    emit('rax <- 60') +\

@@ -438,15 +438,15 @@ assign_stmt_body: ParserT = convert(seq(identifier, space, discard(char("=")), s
 # <return-stmt-body> := 'return' <space> <expr>
 return_stmt_body: ParserT = seq('return', space, expr)
 
-if_stmt: ParserT = seq('if', space, expr, discard(char(':')),
+if_stmt: ParserT = convert(seq('if', space, expr, discard(char(':')),
         lambda x: block(x),
         indentation('same'), 'else', discard(char(':')),
-        lambda x: block(x))
+        lambda x: block(x)), lambda x: If(x[1], x[2], x[4]))
 
 # <stmt> := (<if-stmt> | <return-stmt-body> | <assign-stmt-body | <expr>) <newline>
 stmt: ParserT = convert(seq(oneof(if_stmt, return_stmt_body, assign_stmt_body, expr), newline), lambda x: x[0])
 # <block> := <newline> (<indent> <stmt>)+
-block: ParserT = convert(seq(newline, one_or_more(convert(seq(indentation('indent'), stmt), lambda x: x[0]))), lambda x: x[0])
+block: ParserT = convert(seq(newline, one_or_more(convert(seq(indentation('indent'), stmt), lambda x: x[0]))), lambda x: Block(*x[0]))
 #import tmp; block = tmp.trace_function(block)
 # <function> := 'def' <space> <identifier> '(' (<identifier> (',' <space> <identifier>)*) ')' ':' <newline> <block>
 function: ParserT = seq('def', space, identifier, char('('), intersperse(identifier, discard(seq(char(','), space))), char(')'), char(':'), block)
