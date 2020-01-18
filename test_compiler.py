@@ -125,22 +125,20 @@ on some lines''')
         self.assertEqual(parse('l33t c0d3r', identifier), 'l33t')
         self.assertEqual(parse('val+34', identifier), 'val')
 
-    """
     def test_parse_block(self):
-        self.assertEqual(parse(textwrap.dedent(
-            '''\
-            a
-                b
-            c'''), seq(identifier, block)), ['a', ['b']])
+        r = parse(textwrap.dedent(
+                    '''\
+                    a
+                        b
+                    c'''), seq(identifier, block))
+        self.assertEqual(r, ['a', ['b']])
 
         print('--')
-        self.assertEqual(parse('\n  if true:\n  a(2)\n  else:\n  a(1)\n', block),
+        self.assertEqual(parse('\n  if true:\n   a(2)\n   else:\n   a(1)\n', block, debug=True),
                 ['if', 'true', [['call', 'a', [2]]], 'else', [['call', 'a', [1]]]])
-    """
 
 
     def test_if(self):
-        """
         self.assertEqual(parse(textwrap.dedent(
                         '''\
                         if true:
@@ -151,7 +149,11 @@ on some lines''')
                             return 2
                         blah_blah()
                         '''), if_stmt),
-                        ['if', 'true', [['call', 'print', [2]], ['call', 'print', [3]]], 'else', [['return', 1], ['return', 2]]])
+                        ('if', 'true',
+                            [['call', 'print', [2]],
+                             ['call', 'print', [3]]],
+                            [['return', 1],
+                             ['return', 2]]))
 
         self.assertEqual(parse(textwrap.dedent(
                         '''\
@@ -164,9 +166,13 @@ on some lines''')
                             print(2)
                         else:
                             return 1
-                        '''), if_stmt),
-                        ['if', 'true', [['call', 'print', [1]], ['call', 'print', [2]]], 'else', [['return', 1]]])
-        """
+                        '''), if_stmt, debug=True),
+                        ('if', 'true',
+                            [['call', 'print', [2]],
+                            ('if', 'true',
+                                [['call', 'print', [2]]],
+                                [['return', 'false']])],
+                            [['return', 1]]))
 
     def test_block(self):
         b1 = Block('a', 'b', 'c')

@@ -55,11 +55,10 @@ class Stream:
     i: int = 0
     indent: int = 0
     stream = property(lambda self: self._stream[self.i:])
+
     row = property(lambda self: sum((1 for c in self._stream[:self.i] if c == '\n')))
     col = property(lambda self: next((j for j in range(self.i) if self._stream[self.i - j] == '\n'), self.i))
     def empty(self): return self.i >= len(self._stream)
-
-ParserT = Callable[[Stream], Tuple[object, Stream]]
 
 @dataclass
 class ParseError:
@@ -76,6 +75,8 @@ class ParseError:
         else:
             return f"{self.stream.row + 1}:{self.stream.col + 1}: expected {self.expected}"
 
+ParserT = Callable[[Stream], Tuple[Union[ParseError, object], Stream]]
+
 def empty(s: Stream):
     """
     Parser.
@@ -86,17 +87,15 @@ def empty(s: Stream):
     """
     return EMPTY, s
 
-# TODO: combine this with char()
-# TODO: make this part of the stream object
-def next_char(s: Stream):
+def _next_char(s: Stream):
     """
     The lowest level parser.
     Return the next char in the string and the advanced Stream.
     >>> s = Stream('some string')
-    >>> c1, s1 = next_char(s)
+    >>> c1, s1 = _next_char(s)
     >>> c1
     's'
-    >>> c2, s2 = next_char(s1)
+    >>> c2, s2 = _next_char(s1)
     >>> c2
     'o'
     >>> s2.row, s2.col
@@ -105,7 +104,7 @@ def next_char(s: Stream):
     It should also handle newlines correctly:
     >>> s = Stream("some\\nstring")
     >>> for i in range(6):
-    ...     c, s = next_char(s)
+    ...     c, s = _next_char(s)
     >>> c
     's'
     >>> s.row, s.col
@@ -113,7 +112,7 @@ def next_char(s: Stream):
 
     Empty streams return a ParseError. This will be useful later.
     >>> s = Stream('')
-    >>> e, s = next_char(s)
+    >>> e, s = _next_char(s)
     >>> e.got
     'EOF'
     """
@@ -126,13 +125,18 @@ def next_char(s: Stream):
     else:
         return c, Stream(s._stream, s.i + 1)
 
-def parse(s: str, parser):
+def parse(s: str, p: ParserT, debug=False):
     """
     Execute the parser on a specific string
     """
-    res, stream = parser(Stream(s))
-    if type(res) == ParseError:
-        raise Exception(res.error_string())
+    res, stream = p(Stream(s))
+    if isinstance(res, ParseError):
+        i = res.stream.i + sum(1 for c in res.stream._stream[:res.stream.i] if c in ('\n', '\t'))
+        msg = repr(res.stream._stream) + '\n' + ' ' * (i + 1) + '^'
+        if debug:
+            raise Exception(res.error_string() + '\n' + str(res.stream.i) + '\n' + msg)
+        else:
+            raise Exception(res.error_string())
     return res
 
 def char(expected=None):
@@ -150,10 +154,10 @@ def char(expected=None):
     't'
     """
     if expected == None:  # any character
-        return next_char
+        return _next_char
 
     def charf(stream):
-        c, new_stream = next_char(stream)
+        c, new_stream = _next_char(stream)
         if type(c) == ParseError:
             return ParseError(stream, repr(expected), c.got, many=len(expected) > 1), new_stream
         if c not in expected:
@@ -162,7 +166,6 @@ def char(expected=None):
             return (c, new_stream)
 
     return charf
-
 
 alpha = char("abcdefghijklmnopqrstuvwxyz")
 digit = char("1234567890")
@@ -628,7 +631,6 @@ def modrm(reg1, reg2_or_mem):
             [byte 1  (mov opcode)] '1011001'
             [byte 2 (ModR/M byte)] '01' (indirect + disp8 mod), '000' (eax), '010' (edx)
             [byte 3       (disp8)] '0000100' (offset)
-
 
     For info: https://wiki.osdev.org/X86-64_Instruction_Encoding#ModR.2FM_and_SIB_bytes
     '''
