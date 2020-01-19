@@ -304,15 +304,17 @@ on some lines''')
             return f.read()
 
     def test_emit(self):
+        # TODO: use property based testing to dynamically generate assembly and compare with nasm output
+
         # moves
-        self.assertEqual(emit('rax <- rcx'), self.nasm_assemble(b'mov rax, rcx'))
-        self.assertEqual(emit('rax <-', 8),  self.nasm_assemble(b'mov rax, 8'))
-        self.assertEqual(emit('rax <-', ('rcx', 8)), self.nasm_assemble(b'mov rax, [rcx+8]'))
-        self.assertEqual(emit('eax <-', ('ecx', 8)), self.nasm_assemble(b'mov eax, [ecx+8]'))
-        self.assertEqual(emit('rax <- rcx'), b'\x48\x89\xc8')
-        self.assertEqual(emit('eax <- ecx'), b'\x89\xc8')
-        self.assertEqual(emit('rcx <- rax'), b'\x48\x89\xc1')
-        self.assertEqual(emit('ecx <- eax'), b'\x89\xc1')
+        self.assertEqual(emit('mov rax rcx'), self.nasm_assemble(b'mov rax, rcx'))
+        self.assertEqual(emit('mov rax', 8),  self.nasm_assemble(b'mov rax, 8'))
+        self.assertEqual(emit('mov rax', ('rcx', 8)), self.nasm_assemble(b'mov rax, [rcx+8]'))
+        self.assertEqual(emit('mov eax', ('ecx', 8)), self.nasm_assemble(b'mov eax, [ecx+8]'))
+        self.assertEqual(emit('mov rax rcx'), b'\x48\x89\xc8')
+        self.assertEqual(emit('mov eax ecx'), b'\x89\xc8')
+        self.assertEqual(emit('mov rcx rax'), b'\x48\x89\xc1')
+        self.assertEqual(emit('mov ecx eax'), b'\x89\xc1')
 
         # cmps
         self.assertEqual(emit('cmp eax ecx'), self.nasm_assemble(b'cmp ecx, eax'))
@@ -328,7 +330,7 @@ on some lines''')
         r1.append(emit('j l'))
         r1.append(emit('j l'))
         emit_label('l', r1)
-        r1.append(emit('rax <- 1'))
+        r1.append(emit('mov rax 1'))
         r1.append(emit('add eax eax'))
         r1.append(emit('j l'))
         self.assertEqual(pass2(r1), self.nasm_assemble(b'''
@@ -341,7 +343,7 @@ on some lines''')
         '''))
 
         r2 = []
-        r2.append(emit('rax <- 1'))
+        r2.append(emit('mov rax 1'))
         r2.append(emit('jne l'))
         r2.append(emit('jne l'))
         emit_label('l', r2)
@@ -361,10 +363,26 @@ on some lines''')
             '''))
 
     def test_codegen(self):
+        '''
         g = []
         code_gen_module(
                 [FunctionDef('main', [], Block())],
                 g)
+        '''
+
+        g = []
+        code_gen_module(
+                [FunctionDef('main', [], Block(FunctionCall('f'))),
+                 FunctionDef('f', [], Return (2))],
+                g)
+        self.assertEqual(self.execute_program(pass2(g)), 2)
+
+    def execute_program(self, asm_bytes):
+        with open('a.bin', 'wb') as f:
+            f.write(write_elf(asm_bytes))
+        os.system('chmod +x a.bin')
+        r = os.system('./a.bin')
+        return r >> 8
 
     def test_compiler(self):
         main = normalize_stmt(parse(textwrap.dedent(
@@ -377,15 +395,7 @@ on some lines''')
 
         g = []
         code_gen_module([FunctionDef('main', [], main)], g)
-
-        postlude = emit('rdi <- rax') +\
-                   emit('rax <- 60') +\
-                   emit('syscall')
-        with open('a.bin', 'wb') as f:
-            f.write(write_elf(pass2(g) + postlude))
-        os.system("chmod +x a.bin")
-        r = os.system("./a.bin")
-        self.assertEqual(7, r >> 8)
+        self.assertEqual(7, self.execute_program(pass2(g)))
 
 import doctest
 def load_tests(loader, tests, ignore):
